@@ -284,6 +284,14 @@
   .tier-fill{ height:100%; background:linear-gradient(90deg,var(--steel),var(--chalk)); }
   .lift-input-row{ display:grid; grid-template-columns:1fr 90px; gap:8px; align-items:center; margin-bottom:10px; }
   .lift-input-row span{ font-size:14px; font-weight:600; }
+  .history-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+  .history-item{background:var(--bg-raised-2);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px;}
+  .history-item h3{margin:0 0 5px;font-size:16px;}
+  .history-meta{font-size:12px;color:var(--ink-dim);margin-bottom:8px;}
+  .history-set{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:7px 0;}
+  .history-set input{min-width:0;}
+  .history-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  .btn-small{padding:7px 10px;font-size:12px;}
 </style>
 </head>
 <body>
@@ -298,6 +306,19 @@
   <div class="view active" id="view-today">
     <div class="daypicker" id="dayPicker"></div>
     <div id="todayContent"></div>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="view" id="view-history">
+    <div class="card">
+      <h2>Past Workouts</h2>
+      <p class="muted">View and edit saved workout sessions. Changes are stored in this browser.</p>
+      <div class="history-toolbar">
+        <input id="historySearch" placeholder="Search exercise or date" style="flex:1;min-width:180px;">
+        <button class="btn-ghost" id="historyRefreshBtn">Refresh</button>
+      </div>
+      <div id="historyContent"></div>
+    </div>
   </div>
 
   <!-- PROGRESS -->
@@ -388,6 +409,7 @@ Cable Crunch
 
   <div class="navbar">
     <button class="nav-item on" data-view="today"><span class="ic">✓</span><span class="lb">Today</span></button>
+    <button class="nav-item" data-view="history"><span class="ic">▤</span><span class="lb">History</span></button>
     <button class="nav-item" data-view="progress"><span class="ic">📈</span><span class="lb">Progress</span></button>
     <button class="nav-item" data-view="coach"><span class="ic">✦</span><span class="lb">Coach</span></button>
     <button class="nav-item" data-view="compare"><span class="ic">⚖</span><span class="lb">Compare</span></button>
@@ -440,7 +462,7 @@ Cable Crunch
   async function saveExerciseNames(){ lsSet('exerciseNames', exerciseNames); }
 
   // ---------- nav ----------
-  const views = ['today','progress','coach','compare','setup'];
+  const views = ['today','history','progress','coach','compare','setup'];
   function showView(name){
     views.forEach(v=>{
       document.getElementById('view-'+v).classList.toggle('active', v===name);
@@ -448,6 +470,7 @@ Cable Crunch
     document.querySelectorAll('.nav-item').forEach(b=>{
       b.classList.toggle('on', b.dataset.view===name);
     });
+    if(name==='history') renderHistory();
     if(name==='progress') renderProgress();
     if(name==='compare') renderCompare();
   }
@@ -760,6 +783,78 @@ Cable Crunch
   }
   document.getElementById('progressExSelect').addEventListener('change', renderProgress);
 
+  // ---------- past workout history / editor ----------
+  function esc(value){
+    return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function renderHistory(){
+    const wrap = document.getElementById('historyContent');
+    const search = (document.getElementById('historySearch').value || '').toLowerCase().trim();
+    const dates = Object.keys(logs).sort().reverse();
+    let html = '';
+    dates.forEach(date=>{
+      const day = logs[date];
+      const entries = day && day.entries ? day.entries : {};
+      const exercises = Object.keys(entries).filter(id=>{
+        const name = exerciseNames[id] || id;
+        return !search || date.includes(search) || name.toLowerCase().includes(search);
+      });
+      if(!exercises.length) return;
+      html += `<div class="history-item"><h3>${esc(date)}</h3><div class="history-meta">${exercises.length} exercise(s)</div>`;
+      exercises.forEach(id=>{
+        const name = exerciseNames[id] || id;
+        const sets = entries[id] || [];
+        html += `<div style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px;">
+          <strong>${esc(name)}</strong>
+          <div id="history-${esc(date)}-${esc(id)}">`;
+        sets.forEach((s,i)=>{
+          html += `<div class="history-set" data-date="${esc(date)}" data-id="${esc(id)}" data-index="${i}">
+            <input type="number" step="0.1" class="h-weight" value="${esc(s.weight)}" aria-label="Weight">
+            <input type="number" class="h-reps" value="${esc(s.reps)}" aria-label="Reps">
+            <select class="h-done" aria-label="Completed">
+              <option value="true" ${s.done!==false?'selected':''}>Done</option>
+              <option value="false" ${s.done===false?'selected':''}>Not done</option>
+            </select>
+          </div>`;
+        });
+        html += `<div class="history-actions">
+          <button class="btn-primary btn-small" data-save-history="${esc(date)}|${esc(id)}">Save exercise</button>
+          <button class="btn-ghost btn-small" data-delete-history="${esc(date)}|${esc(id)}">Delete exercise</button>
+        </div></div></div>`;
+      });
+      html += `</div>`;
+    });
+    wrap.innerHTML = html || '<p class="muted">No matching past workouts found.</p>';
+
+    wrap.querySelectorAll('[data-save-history]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const [date,id] = btn.dataset.saveHistory.split('|');
+        const rows = [...wrap.querySelectorAll(`.history-set[data-date="${CSS.escape(date)}"][data-id="${CSS.escape(id)}"]`)];
+        logs[date].entries[id] = rows.map(row=>({
+          weight: Number(row.querySelector('.h-weight').value)||0,
+          reps: Number(row.querySelector('.h-reps').value)||0,
+          done: row.querySelector('.h-done').value==='true'
+        }));
+        await saveLogs();
+        renderHistory();
+        renderProgressExOptions();
+      });
+    });
+    wrap.querySelectorAll('[data-delete-history]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const [date,id] = btn.dataset.deleteHistory.split('|');
+        if(!confirm(`Delete ${exerciseNames[id] || id} from ${date}?`)) return;
+        delete logs[date].entries[id];
+        if(!Object.keys(logs[date].entries).length) delete logs[date];
+        await saveLogs();
+        renderHistory();
+        renderProgressExOptions();
+      });
+    });
+  }
+  document.getElementById('historySearch').addEventListener('input', renderHistory);
+  document.getElementById('historyRefreshBtn').addEventListener('click', renderHistory);
+
   function historyFor(exId){
     const dates = Object.keys(logs).sort();
     const out = [];
@@ -933,6 +1028,7 @@ ${summary || '(no sessions logged yet)'}`;
     renderDayPicker();
     renderToday();
     renderProgressExOptions();
+    renderHistory();
   }
   boot();
 })();
