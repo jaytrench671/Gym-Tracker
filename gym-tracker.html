@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Plates — Gym Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #12161C;
+    --bg-raised: #1B212B;
+    --bg-raised-2: #232B37;
+    --line: #2C3542;
+    --ink: #EDEFF2;
+    --ink-dim: #9AA5B4;
+    --ink-faint: #5D6875;
+    --chalk: #E9C25E;
+    --chalk-dim: #B99C48;
+    --steel: #6FA8C9;
+    --good: #6EBE8A;
+    --bad: #D9765B;
+    --radius: 14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    -webkit-tap-highlight-color:transparent;
+    min-height:100vh;
+  }
+  .app{
+    max-width:460px;
+    margin:0 auto;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    position:relative;
+    padding-bottom:78px;
+  }
+  .topbar{
+    padding:22px 20px 14px;
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+  }
+  .topbar h1{
+    font-family:'Barlow Condensed',sans-serif;
+    font-weight:800;
+    font-size:30px;
+    letter-spacing:0.5px;
+    margin:0;
+    color:var(--ink);
+  }
+  .topbar h1 span{color:var(--chalk);}
+  .topbar .date{
+    font-size:13px;
+    color:var(--ink-dim);
+    font-weight:500;
+  }
+  .view{ display:none; padding:0 18px 20px; flex:1; }
+  .view.active{ display:block; }
+
+  .card{
+    background:var(--bg-raised);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:16px;
+    margin-bottom:14px;
+  }
+  .card h2{
+    font-family:'Barlow Condensed',sans-serif;
+    font-size:19px;
+    font-weight:700;
+    margin:0 0 12px;
+    color:var(--ink);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+  }
+  .muted{ color:var(--ink-dim); font-size:13.5px; line-height:1.5; }
+  .empty{
+    text-align:center;
+    padding:40px 20px;
+    color:var(--ink-dim);
+  }
+  .empty .big{ font-family:'Barlow Condensed',sans-serif; font-size:22px; color:var(--ink); margin-bottom:6px; font-weight:700;}
+
+  select, input[type=text], input[type=number]{
+    background:var(--bg-raised-2);
+    border:1px solid var(--line);
+    color:var(--ink);
+    border-radius:10px;
+    padding:10px 12px;
+    font-size:15px;
+    font-family:'Inter',sans-serif;
+    width:100%;
+  }
+  select:focus, input:focus{ outline:2px solid var(--chalk-dim); outline-offset:1px; }
+  label{ font-size:12.5px; color:var(--ink-dim); font-weight:600; display:block; margin-bottom:5px; }
+  .field{ margin-bottom:12px; }
+  .row2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+  button{ font-family:'Inter',sans-serif; cursor:pointer; border:none; }
+  .btn-primary{
+    background:var(--chalk);
+    color:#1A1508;
+    font-weight:700;
+    font-size:15px;
+    padding:13px 18px;
+    border-radius:11px;
+    width:100%;
+  }
+  .btn-primary:active{ transform:scale(0.98); }
+  .btn-primary:disabled{ opacity:0.5; }
+  .btn-ghost{
+    background:transparent;
+    border:1px solid var(--line);
+    color:var(--ink-dim);
+    font-weight:600;
+    font-size:13.5px;
+    padding:9px 14px;
+    border-radius:10px;
+  }
+  .btn-danger{ color:var(--bad); }
+  .btn-icon{
+    background:var(--bg-raised-2);
+    border:1px solid var(--line);
+    color:var(--ink);
+    width:34px; height:34px;
+    border-radius:9px;
+    font-size:18px;
+    display:flex; align-items:center; justify-content:center;
+    font-weight:700;
+    line-height:1;
+  }
+  .btn-icon:active{ background:var(--chalk); color:#1A1508; }
+
+  .exercise-block{
+    border-top:1px solid var(--line);
+    padding-top:14px;
+    margin-top:14px;
+  }
+  .exercise-block:first-child{ border-top:none; padding-top:0; margin-top:0; }
+  .ex-title{
+    font-family:'Barlow Condensed',sans-serif;
+    font-size:18px;
+    font-weight:700;
+    margin-bottom:2px;
+  }
+  .ex-sub{ font-size:12px; color:var(--ink-faint); margin-bottom:10px; }
+
+  .set-row{
+    display:grid;
+    grid-template-columns:28px 1fr 1fr 34px;
+    gap:8px;
+    align-items:center;
+    margin-bottom:8px;
+  }
+  .set-num{ font-family:'Barlow Condensed',sans-serif; font-weight:700; color:var(--ink-faint); font-size:15px; text-align:center; }
+  .stepper{
+    display:flex;
+    align-items:center;
+    background:var(--bg-raised-2);
+    border:1px solid var(--line);
+    border-radius:10px;
+    overflow:hidden;
+  }
+  .stepper button{
+    background:transparent;
+    color:var(--chalk);
+    font-size:17px;
+    font-weight:700;
+    width:32px; height:36px;
+    flex-shrink:0;
+  }
+  .stepper button:active{ background:var(--bg-raised); }
+  .stepper .val{
+    flex:1;
+    text-align:center;
+    font-family:'Barlow Condensed',sans-serif;
+    font-size:17px;
+    font-weight:700;
+  }
+  .stepper .unit{ font-size:10px; color:var(--ink-faint); font-weight:500; }
+  .check{
+    width:34px; height:36px;
+    border-radius:10px;
+    border:1px solid var(--line);
+    background:var(--bg-raised-2);
+    color:transparent;
+    font-size:16px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .check.on{ background:var(--good); border-color:var(--good); color:#0E1712; }
+
+  .daypicker{ display:flex; gap:8px; overflow-x:auto; padding-bottom:2px; margin-bottom:14px; }
+  .daypicker button{
+    flex-shrink:0;
+    background:var(--bg-raised);
+    border:1px solid var(--line);
+    color:var(--ink-dim);
+    padding:8px 14px;
+    border-radius:20px;
+    font-size:13.5px;
+    font-weight:600;
+  }
+  .daypicker button.on{ background:var(--chalk); color:#1A1508; border-color:var(--chalk); }
+
+  .navbar{
+    position:fixed;
+    bottom:0; left:0; right:0;
+    max-width:460px;
+    margin:0 auto;
+    background:var(--bg-raised);
+    border-top:1px solid var(--line);
+    display:flex;
+    padding:8px 4px calc(8px + env(safe-area-inset-bottom));
+  }
+  .nav-item{
+    flex:1;
+    background:transparent;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:3px;
+    color:var(--ink-faint);
+    padding:6px 2px;
+    border-radius:10px;
+  }
+  .nav-item.on{ color:var(--chalk); }
+  .nav-item .ic{ font-size:19px; }
+  .nav-item .lb{ font-size:10.5px; font-weight:600; letter-spacing:0.2px; }
+
+  .plan-day{
+    background:var(--bg-raised-2);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:12px;
+    margin-bottom:10px;
+  }
+  .plan-day-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .plan-day-head input{ font-family:'Barlow Condensed',sans-serif; font-size:17px; font-weight:700; padding:6px 8px; }
+  .plan-ex-row{ display:flex; gap:8px; margin-bottom:7px; align-items:center; }
+  .plan-ex-row input{ font-size:13.5px; padding:8px 9px; }
+  .plan-ex-row input.name{ flex:2; }
+  .plan-ex-row input.num{ flex:1; text-align:center; }
+
+  .chart-wrap{ overflow-x:auto; }
+  .pr-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-top:12px; }
+  .pr-item{ background:var(--bg-raised-2); border-radius:10px; padding:10px 12px; }
+  .pr-item .n{ font-family:'Barlow Condensed',sans-serif; font-size:22px; font-weight:700; color:var(--chalk); }
+  .pr-item .l{ font-size:11.5px; color:var(--ink-dim); }
+
+  .coach-msg{ white-space:pre-wrap; font-size:14px; line-height:1.6; }
+  .adj-card{
+    background:var(--bg-raised-2);
+    border-left:3px solid var(--chalk);
+    border-radius:8px;
+    padding:10px 12px;
+    margin-bottom:8px;
+  }
+  .adj-card .ex{ font-weight:700; font-size:14.5px; margin-bottom:3px; }
+  .adj-card .change{ font-size:13px; color:var(--chalk); font-weight:600; }
+  .adj-card .note{ font-size:12.5px; color:var(--ink-dim); margin-top:3px; }
+
+  .spinner{
+    width:18px; height:18px;
+    border:2.5px solid rgba(233,194,94,0.25);
+    border-top-color:var(--chalk);
+    border-radius:50%;
+    animation:spin 0.7s linear infinite;
+    display:inline-block;
+    vertical-align:middle;
+    margin-right:8px;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  .tier-bar{
+    height:10px; border-radius:6px; background:var(--bg-raised-2); overflow:hidden; margin:6px 0 4px;
+  }
+  .tier-fill{ height:100%; background:linear-gradient(90deg,var(--steel),var(--chalk)); }
+  .lift-input-row{ display:grid; grid-template-columns:1fr 90px; gap:8px; align-items:center; margin-bottom:10px; }
+  .lift-input-row span{ font-size:14px; font-weight:600; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <h1>Plate<span>s.</span></h1>
+    <div class="date" id="topDate"></div>
+  </div>
+
+  <!-- TODAY -->
+  <div class="view active" id="view-today">
+    <div class="daypicker" id="dayPicker"></div>
+    <div id="todayContent"></div>
+  </div>
+
+  <!-- PROGRESS -->
+  <div class="view" id="view-progress">
+    <div class="card">
+      <h2>Progress</h2>
+      <div class="field">
+        <label>Exercise</label>
+        <select id="progressExSelect"></select>
+      </div>
+      <div class="chart-wrap"><svg id="chartSvg" width="100%" height="180"></svg></div>
+      <div class="pr-grid" id="prGrid"></div>
+    </div>
+  </div>
+
+  <!-- COACH -->
+  <div class="view" id="view-coach">
+    <div class="card">
+      <h2>AI Coach</h2>
+      <p class="muted">This app doesn't call an AI model directly — that needs your own API key. Instead, tap the button below to copy a summary of your plan and recent sessions, then paste it into a chat with Claude to get weight and rep suggestions.</p>
+      <button class="btn-primary" id="copySummaryBtn" style="margin-top:10px;">Copy training summary</button>
+      <p class="muted" id="copyStatus" style="margin-top:8px; min-height:16px;"></p>
+    </div>
+    <div class="card">
+      <h2>Want a live coach instead?</h2>
+      <p class="muted">If you get an Anthropic API key later, I can add a spot to paste it in and wire this button up to call Claude directly from the app.</p>
+    </div>
+  </div>
+
+  <!-- COMPARE -->
+  <div class="view" id="view-compare">
+    <div class="card">
+      <h2>Compare</h2>
+      <p class="muted">Estimated strength level for your best lifts, based on your bodyweight, height, age and sex. This uses general population strength norms — a rough guide, not a lab measurement.</p>
+    </div>
+    <div class="card" id="compareInputs"></div>
+    <div id="compareResult"></div>
+  </div>
+
+  <!-- SETUP -->
+  <div class="view" id="view-setup">
+    <div class="card">
+      <h2>Your profile</h2>
+      <div class="row2">
+        <div class="field"><label>Sex</label>
+          <select id="profGender"><option value="male">Male</option><option value="female">Female</option></select>
+        </div>
+        <div class="field"><label>Age</label><input type="number" id="profAge" placeholder="28"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Weight (kg)</label><input type="number" id="profWeight" placeholder="75"></div>
+        <div class="field"><label>Height (cm)</label><input type="number" id="profHeight" placeholder="178"></div>
+      </div>
+      <div class="field"><label>Weight unit for logging</label>
+        <select id="profUnit"><option value="kg">kg</option><option value="lb">lb</option></select>
+      </div>
+      <button class="btn-primary" id="saveProfileBtn">Save profile</button>
+    </div>
+
+    <div class="card">
+      <h2>Workout plan <button class="btn-icon" id="addDayBtn">+</button></h2>
+      <div id="planEditor"></div>
+      <p class="muted" id="planEmptyMsg" style="display:none;">Add a day to start building your split.</p>
+    </div>
+
+    <div class="card">
+      <h2>Data</h2>
+      <button class="btn-ghost btn-danger" id="resetBtn">Reset all local data</button>
+    </div>
+  </div>
+
+  <div class="navbar">
+    <button class="nav-item on" data-view="today"><span class="ic">✓</span><span class="lb">Today</span></button>
+    <button class="nav-item" data-view="progress"><span class="ic">📈</span><span class="lb">Progress</span></button>
+    <button class="nav-item" data-view="coach"><span class="ic">✦</span><span class="lb">Coach</span></button>
+    <button class="nav-item" data-view="compare"><span class="ic">⚖</span><span class="lb">Compare</span></button>
+    <button class="nav-item" data-view="setup"><span class="ic">⚙</span><span class="lb">Setup</span></button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- state ----------
+  let profile = { gender:'male', age:'', weight:'', height:'', unit:'kg' };
+  let plan = { days: [] }; // {id,name,exercises:[{id,name,sets,reps,weight}]}
+  let logs = {}; // dateStr -> { dayId, entries: { exerciseId: [{weight,reps,done}] } }
+  let rotation = { nextDayIndex: 0 };
+  let activeDayId = null;
+  let todayStr = new Date().toISOString().slice(0,10);
+
+  function uid(){ return Math.random().toString(36).slice(2,9); }
+
+  // ---------- storage ----------
+  // Uses plain browser localStorage so this works as a standalone saved file /
+  // home-screen web app, independent of the Claude chat interface.
+  const STORE_PREFIX = 'plates:';
+  function lsGet(key){
+    try{
+      const v = localStorage.getItem(STORE_PREFIX+key);
+      return v ? JSON.parse(v) : null;
+    }catch(e){ console.error('storage read failed', e); return null; }
+  }
+  function lsSet(key, value){
+    try{
+      localStorage.setItem(STORE_PREFIX+key, JSON.stringify(value));
+      return true;
+    }catch(e){ console.error('storage write failed', e); return false; }
+  }
+  async function loadAll(){
+    const p = lsGet('profile'); if(p) profile = p;
+    const pl = lsGet('plan'); if(pl) plan = pl;
+    const lg = lsGet('logs'); if(lg) logs = lg;
+    const rt = lsGet('rotation'); if(rt) rotation = rt;
+  }
+  async function saveProfile(){ lsSet('profile', profile); }
+  async function savePlan(){ lsSet('plan', plan); }
+  async function saveLogs(){ lsSet('logs', logs); }
+  async function saveRotation(){ lsSet('rotation', rotation); }
+
+  // ---------- nav ----------
+  const views = ['today','progress','coach','compare','setup'];
+  function showView(name){
+    views.forEach(v=>{
+      document.getElementById('view-'+v).classList.toggle('active', v===name);
+    });
+    document.querySelectorAll('.nav-item').forEach(b=>{
+      b.classList.toggle('on', b.dataset.view===name);
+    });
+    if(name==='progress') renderProgress();
+    if(name==='compare') renderCompare();
+  }
+  document.querySelectorAll('.nav-item').forEach(b=>{
+    b.addEventListener('click', ()=>showView(b.dataset.view));
+  });
+
+  document.getElementById('topDate').textContent = new Date().toLocaleDateString(undefined,{weekday:'short', month:'short', day:'numeric'});
+
+  // ---------- setup / profile ----------
+  function fillProfileForm(){
+    document.getElementById('profGender').value = profile.gender||'male';
+    document.getElementById('profAge').value = profile.age||'';
+    document.getElementById('profWeight').value = profile.weight||'';
+    document.getElementById('profHeight').value = profile.height||'';
+    document.getElementById('profUnit').value = profile.unit||'kg';
+  }
+  document.getElementById('saveProfileBtn').addEventListener('click', async ()=>{
+    profile = {
+      gender: document.getElementById('profGender').value,
+      age: document.getElementById('profAge').value,
+      weight: document.getElementById('profWeight').value,
+      height: document.getElementById('profHeight').value,
+      unit: document.getElementById('profUnit').value,
+    };
+    await saveProfile();
+    renderToday(); renderCompare();
+    const btn = document.getElementById('saveProfileBtn');
+    const old = btn.textContent; btn.textContent = 'Saved ✓';
+    setTimeout(()=>btn.textContent=old, 1200);
+  });
+
+  // ---------- plan editor ----------
+  function renderPlanEditor(){
+    const wrap = document.getElementById('planEditor');
+    wrap.innerHTML = '';
+    document.getElementById('planEmptyMsg').style.display = plan.days.length ? 'none' : 'block';
+    plan.days.forEach((day, di)=>{
+      const el = document.createElement('div');
+      el.className = 'plan-day';
+      el.innerHTML = `
+        <div class="plan-day-head">
+          <input type="text" class="dayname" value="${escapeAttr(day.name)}" placeholder="Day name">
+          <div style="display:flex; gap:6px;">
+            <button class="btn-icon addex" title="Add exercise">+</button>
+            <button class="btn-icon deldy" title="Delete day">×</button>
+          </div>
+        </div>
+        <div class="exlist"></div>
+      `;
+      const exlist = el.querySelector('.exlist');
+      day.exercises.forEach((ex, ei)=>{
+        const row = document.createElement('div');
+        row.className = 'plan-ex-row';
+        row.innerHTML = `
+          <input type="text" class="name" value="${escapeAttr(ex.name)}" placeholder="Exercise">
+          <input type="number" class="num" value="${ex.sets}" placeholder="Sets" title="Sets">
+          <input type="number" class="num" value="${ex.reps}" placeholder="Reps" title="Reps">
+          <button class="btn-icon delex">×</button>
+        `;
+        const [nameI, setsI, repsI] = row.querySelectorAll('input');
+        nameI.addEventListener('input', ()=>{ ex.name = nameI.value; savePlan(); });
+        setsI.addEventListener('input', ()=>{ ex.sets = parseInt(setsI.value)||1; savePlan(); });
+        repsI.addEventListener('input', ()=>{ ex.reps = parseInt(repsI.value)||1; savePlan(); });
+        row.querySelector('.delex').addEventListener('click', ()=>{
+          day.exercises.splice(ei,1); savePlan(); renderPlanEditor(); renderToday();
+        });
+        exlist.appendChild(row);
+      });
+      el.querySelector('.dayname').addEventListener('input', (e)=>{ day.name = e.target.value; savePlan(); renderDayPicker(); });
+      el.querySelector('.addex').addEventListener('click', ()=>{
+        day.exercises.push({ id: uid(), name:'', sets:3, reps:8, weight:0 });
+        savePlan(); renderPlanEditor(); renderToday();
+      });
+      el.querySelector('.deldy').addEventListener('click', ()=>{
+        plan.days.splice(di,1); savePlan(); renderPlanEditor(); renderDayPicker(); renderToday(); renderProgressExOptions();
+      });
+      wrap.appendChild(el);
+    });
+  }
+  document.getElementById('addDayBtn').addEventListener('click', ()=>{
+    plan.days.push({ id: uid(), name: 'Day '+(plan.days.length+1), exercises: [] });
+    savePlan(); renderPlanEditor(); renderDayPicker(); renderToday(); renderProgressExOptions();
+  });
+  document.getElementById('resetBtn').addEventListener('click', async ()=>{
+    if(!confirm('This clears your profile, plan and logged history on this device. Continue?')) return;
+    profile = { gender:'male', age:'', weight:'', height:'', unit:'kg' };
+    plan = { days: [] };
+    logs = {};
+    rotation = { nextDayIndex: 0 };
+    await Promise.all([saveProfile(), savePlan(), saveLogs(), saveRotation()]);
+    fillProfileForm(); renderPlanEditor(); renderDayPicker(); renderToday(); renderProgressExOptions();
+  });
+
+  function escapeAttr(s){ return (s||'').replace(/"/g,'&quot;'); }
+
+  // ---------- today / checklist ----------
+  function renderDayPicker(){
+    const wrap = document.getElementById('dayPicker');
+    wrap.innerHTML = '';
+    if(!plan.days.length){ activeDayId = null; return; }
+    if(!activeDayId || !plan.days.find(d=>d.id===activeDayId)){
+      const idx = rotation.nextDayIndex % plan.days.length;
+      activeDayId = plan.days[idx].id;
+    }
+    plan.days.forEach(d=>{
+      const b = document.createElement('button');
+      b.textContent = d.name || 'Untitled';
+      b.className = d.id===activeDayId ? 'on' : '';
+      b.addEventListener('click', ()=>{ activeDayId = d.id; renderDayPicker(); renderToday(); });
+      wrap.appendChild(b);
+    });
+  }
+
+  function getTodayLog(){
+    if(!logs[todayStr]) logs[todayStr] = { dayId: activeDayId, entries:{} };
+    return logs[todayStr];
+  }
+
+  function lastWeightFor(exId, exDefault){
+    // find most recent logged weight for this exercise across history
+    const dates = Object.keys(logs).sort().reverse();
+    for(const d of dates){
+      const entry = logs[d].entries && logs[d].entries[exId];
+      if(entry && entry.length){
+        const withWeight = entry.filter(s=>s.weight);
+        if(withWeight.length) return withWeight[withWeight.length-1].weight;
+      }
+    }
+    return exDefault || 0;
+  }
+
+  function renderToday(){
+    const content = document.getElementById('todayContent');
+    if(!plan.days.length){
+      content.innerHTML = `<div class="empty"><div class="big">No workout plan yet</div>Head to Setup to add your training days and exercises.</div>`;
+      return;
+    }
+    const day = plan.days.find(d=>d.id===activeDayId);
+    if(!day || !day.exercises.length){
+      content.innerHTML = `<div class="empty"><div class="big">${day? (day.name||'This day') : 'This day'} is empty</div>Add exercises to it in Setup.</div>`;
+      return;
+    }
+    const log = getTodayLog();
+    log.dayId = day.id;
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `<h2>${escapeAttr(day.name)}</h2>`;
+
+    day.exercises.forEach(ex=>{
+      if(!log.entries[ex.id]){
+        const startWeight = lastWeightFor(ex.id, ex.weight);
+        log.entries[ex.id] = Array.from({length: ex.sets}, ()=>({ weight: startWeight, reps: ex.reps, done:false }));
+      }
+      const sets = log.entries[ex.id];
+      const block = document.createElement('div');
+      block.className = 'exercise-block';
+      block.innerHTML = `<div class="ex-title">${escapeAttr(ex.name||'Exercise')}</div><div class="ex-sub">Target: ${ex.sets} × ${ex.reps}</div>`;
+      sets.forEach((s, si)=>{
+        const row = document.createElement('div');
+        row.className = 'set-row';
+        row.innerHTML = `
+          <div class="set-num">${si+1}</div>
+          <div class="stepper" data-k="weight">
+            <button class="minus">−</button>
+            <div class="val">${s.weight}<div class="unit">${profile.unit||'kg'}</div></div>
+            <button class="plus">+</button>
+          </div>
+          <div class="stepper" data-k="reps">
+            <button class="minus">−</button>
+            <div class="val">${s.reps}<div class="unit">reps</div></div>
+            <button class="plus">+</button>
+          </div>
+          <button class="check ${s.done?'on':''}">✓</button>
+        `;
+        const [wStep, rStep] = row.querySelectorAll('.stepper');
+        const step = (unit)=> unit==='weight' ? (profile.unit==='lb'?5:2.5) : 1;
+        wStep.querySelector('.plus').addEventListener('click', ()=>{ s.weight = +(s.weight + step('weight')).toFixed(1); saveLogs(); renderToday(); });
+        wStep.querySelector('.minus').addEventListener('click', ()=>{ s.weight = Math.max(0, +(s.weight - step('weight')).toFixed(1)); saveLogs(); renderToday(); });
+        rStep.querySelector('.plus').addEventListener('click', ()=>{ s.reps = s.reps + 1; saveLogs(); renderToday(); });
+        rStep.querySelector('.minus').addEventListener('click', ()=>{ s.reps = Math.max(0, s.reps - 1); saveLogs(); renderToday(); });
+        row.querySelector('.check').addEventListener('click', (e)=>{ s.done = !s.done; saveLogs(); e.target.classList.toggle('on', s.done); });
+        block.appendChild(row);
+      });
+      card.appendChild(block);
+    });
+
+    const finishBtn = document.createElement('button');
+    finishBtn.className = 'btn-primary';
+    finishBtn.style.marginTop = '4px';
+    finishBtn.textContent = 'Finish workout';
+    finishBtn.addEventListener('click', async ()=>{
+      await saveLogs();
+      const idx = plan.days.findIndex(d=>d.id===day.id);
+      rotation.nextDayIndex = (idx + 1) % plan.days.length;
+      await saveRotation();
+      finishBtn.textContent = 'Saved ✓';
+      setTimeout(()=>{ finishBtn.textContent = 'Finish workout'; }, 1200);
+      renderProgressExOptions();
+    });
+    content.innerHTML = '';
+    content.appendChild(card);
+    content.appendChild(finishBtn);
+    saveLogs();
+  }
+
+  // ---------- progress ----------
+  function allExercises(){
+    const map = {};
+    plan.days.forEach(d=> d.exercises.forEach(ex=> map[ex.id] = ex.name || 'Exercise'));
+    // include any logged exercise ids even if removed from plan
+    Object.values(logs).forEach(l=>{
+      Object.keys(l.entries||{}).forEach(id=>{ if(!map[id]) map[id] = 'Removed exercise'; });
+    });
+    return map;
+  }
+  function renderProgressExOptions(){
+    const sel = document.getElementById('progressExSelect');
+    const map = allExercises();
+    const ids = Object.keys(map);
+    const prev = sel.value;
+    sel.innerHTML = ids.length ? ids.map(id=>`<option value="${id}">${map[id]}</option>`).join('') : '<option value="">No exercises logged yet</option>';
+    if(ids.includes(prev)) sel.value = prev;
+  }
+  document.getElementById('progressExSelect').addEventListener('change', renderProgress);
+
+  function historyFor(exId){
+    const dates = Object.keys(logs).sort();
+    const out = [];
+    dates.forEach(d=>{
+      const entry = logs[d].entries && logs[d].entries[exId];
+      if(entry && entry.some(s=>s.done)){
+        const doneSets = entry.filter(s=>s.done);
+        const top = Math.max(...doneSets.map(s=>s.weight));
+        const totalReps = doneSets.reduce((a,s)=>a+s.reps,0);
+        out.push({ date:d, top, totalReps });
+      }
+    });
+    return out;
+  }
+
+  function renderProgress(){
+    renderProgressExOptions();
+    const exId = document.getElementById('progressExSelect').value;
+    const svg = document.getElementById('chartSvg');
+    const prGrid = document.getElementById('prGrid');
+    if(!exId){ svg.innerHTML=''; prGrid.innerHTML=''; return; }
+    const hist = historyFor(exId);
+    const W = 320, H = 170, pad = 24;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    if(!hist.length){
+      svg.innerHTML = `<text x="${W/2}" y="${H/2}" fill="#5D6875" font-size="13" text-anchor="middle">No completed sets logged yet</text>`;
+      prGrid.innerHTML = '';
+      return;
+    }
+    const maxW = Math.max(...hist.map(h=>h.top), 1);
+    const minW = Math.min(...hist.map(h=>h.top), 0);
+    const pts = hist.map((h,i)=>{
+      const x = pad + (hist.length===1 ? (W-2*pad)/2 : i*(W-2*pad)/(hist.length-1));
+      const y = H-pad - ( (h.top-minW) / ((maxW-minW)||1) ) * (H-2*pad);
+      return [x,y];
+    });
+    const path = pts.map((p,i)=> (i===0?'M':'L')+p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+    const dots = pts.map(p=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" fill="#E9C25E"/>`).join('');
+    svg.innerHTML = `
+      <line x1="${pad}" y1="${H-pad}" x2="${W-pad}" y2="${H-pad}" stroke="#2C3542" stroke-width="1"/>
+      <path d="${path}" fill="none" stroke="#E9C25E" stroke-width="2.5"/>
+      ${dots}
+      <text x="${pad}" y="14" fill="#9AA5B4" font-size="11">${maxW}${profile.unit||'kg'}</text>
+      <text x="${pad}" y="${H-8}" fill="#5D6875" font-size="10">${hist[0].date.slice(5)}</text>
+      <text x="${W-pad}" y="${H-8}" fill="#5D6875" font-size="10" text-anchor="end">${hist[hist.length-1].date.slice(5)}</text>
+    `;
+    const best = maxW;
+    const sessions = hist.length;
+    const lastSession = hist[hist.length-1];
+    prGrid.innerHTML = `
+      <div class="pr-item"><div class="n">${best}${profile.unit||'kg'}</div><div class="l">Best set logged</div></div>
+      <div class="pr-item"><div class="n">${sessions}</div><div class="l">Sessions logged</div></div>
+      <div class="pr-item"><div class="n">${lastSession.top}${profile.unit||'kg'}</div><div class="l">Last session top set</div></div>
+      <div class="pr-item"><div class="n">${lastSession.totalReps}</div><div class="l">Reps last session</div></div>
+    `;
+  }
+
+  // ---------- coach summary (copy to clipboard, paste into a Claude chat) ----------
+  function buildCoachSummary(){
+    const exMap = allExercises();
+    const summary = Object.entries(exMap).map(([id,name])=>{
+      const hist = historyFor(id).slice(-5);
+      if(!hist.length) return null;
+      return `${name}: ` + hist.map(h=>`${h.date} top set ${h.top}${profile.unit||'kg'}, ${h.totalReps} total reps`).join('; ');
+    }).filter(Boolean).join('\n');
+    const planText = plan.days.map(d=> d.name + ': ' + d.exercises.map(e=>`${e.name} ${e.sets}x${e.reps}`).join(', ')).join('\n');
+    return `Here's my training data — can you suggest weight/rep adjustments for my next session of each exercise, plus any coaching notes?
+
+Profile: sex=${profile.gender||'unknown'}, age=${profile.age||'unknown'}, bodyweight=${profile.weight||'unknown'}${profile.unit||'kg'}, height=${profile.height||'unknown'}cm.
+
+Current plan:
+${planText || '(no plan set)'}
+
+Recent logged sessions (most recent last, per exercise):
+${summary || '(no sessions logged yet)'}`;
+  }
+
+  document.getElementById('copySummaryBtn').addEventListener('click', async ()=>{
+    const status = document.getElementById('copyStatus');
+    const text = buildCoachSummary();
+    try{
+      await navigator.clipboard.writeText(text);
+      status.textContent = 'Copied — paste it into a chat with Claude.';
+    }catch(e){
+      status.textContent = "Couldn't copy automatically — select and copy the text below.";
+      const pre = document.createElement('pre');
+      pre.style.whiteSpace = 'pre-wrap';
+      pre.style.fontSize = '12.5px';
+      pre.style.color = 'var(--ink-dim)';
+      pre.style.marginTop = '10px';
+      pre.textContent = text;
+      status.after(pre);
+    }
+  });
+
+  // ---------- compare ----------
+  // Rough population strength-standard multipliers of bodyweight, by sex, for 4 lifts.
+  // Levels: beginner < novice < intermediate < advanced < elite (approximate, for general guidance only).
+  const STANDARDS = {
+    male: {
+      squat:    [0.5, 0.75, 1.25, 1.75, 2.25],
+      bench:    [0.4, 0.6, 1.0, 1.35, 1.7],
+      deadlift: [0.65, 1.0, 1.5, 2.0, 2.5],
+      overhead: [0.25, 0.4, 0.6, 0.8, 1.0]
+    },
+    female: {
+      squat:    [0.35, 0.55, 0.9, 1.35, 1.75],
+      bench:    [0.2, 0.35, 0.6, 0.85, 1.1],
+      deadlift: [0.45, 0.7, 1.1, 1.6, 2.0],
+      overhead: [0.15, 0.25, 0.4, 0.55, 0.7]
+    }
+  };
+  const TIER_NAMES = ['Beginner','Novice','Intermediate','Advanced','Elite'];
+  const LIFTS = [ ['squat','Squat'], ['bench','Bench press'], ['deadlift','Deadlift'], ['overhead','Overhead press'] ];
+
+  let compareLifts = { squat:'', bench:'', deadlift:'', overhead:'' };
+
+  function renderCompareInputs(){
+    const wrap = document.getElementById('compareInputs');
+    wrap.innerHTML = '<label style="margin-bottom:10px;">Your best set (1 rep or close to it)</label>' + LIFTS.map(([k,label])=>`
+      <div class="lift-input-row">
+        <span>${label}</span>
+        <input type="number" data-lift="${k}" value="${compareLifts[k]}" placeholder="${profile.unit||'kg'}">
+      </div>
+    `).join('');
+    wrap.querySelectorAll('input').forEach(inp=>{
+      inp.addEventListener('input', ()=>{ compareLifts[inp.dataset.lift] = inp.value; renderCompareResult(); });
+    });
+  }
+
+  function renderCompareResult(){
+    const wrap = document.getElementById('compareResult');
+    const bw = parseFloat(profile.weight);
+    if(!bw){
+      wrap.innerHTML = `<div class="card"><p class="muted">Add your bodyweight in Setup to see comparisons.</p></div>`;
+      return;
+    }
+    const sex = profile.gender==='female' ? 'female' : 'male';
+    let html = '';
+    LIFTS.forEach(([k,label])=>{
+      const val = parseFloat(compareLifts[k]);
+      if(!val) return;
+      const ratio = val / bw;
+      const thresholds = STANDARDS[sex][k];
+      let tierIdx = 0;
+      thresholds.forEach((t,i)=>{ if(ratio >= t) tierIdx = i+1; });
+      tierIdx = Math.min(tierIdx, TIER_NAMES.length-1);
+      const nextThreshold = thresholds[tierIdx] || thresholds[thresholds.length-1]*1.15;
+      const prevThreshold = tierIdx>0 ? thresholds[tierIdx-1] : 0;
+      const pct = Math.min(100, Math.max(4, ((ratio-prevThreshold)/((nextThreshold-prevThreshold)||1))*100));
+      html += `<div class="card">
+        <h2>${label}</h2>
+        <div class="muted">${val}${profile.unit||'kg'} · ${ratio.toFixed(2)}× bodyweight</div>
+        <div class="tier-bar"><div class="tier-fill" style="width:${pct}%"></div></div>
+        <div style="font-family:'Barlow Condensed',sans-serif; font-size:19px; font-weight:700; color:var(--chalk);">${TIER_NAMES[tierIdx]}</div>
+      </div>`;
+    });
+    wrap.innerHTML = html || `<div class="card"><p class="muted">Enter at least one lift above to see where you stand.</p></div>`;
+  }
+
+  function renderCompare(){
+    renderCompareInputs();
+    renderCompareResult();
+  }
+
+  // ---------- boot ----------
+  async function boot(){
+    await loadAll();
+    fillProfileForm();
+    renderPlanEditor();
+    renderDayPicker();
+    renderToday();
+    renderProgressExOptions();
+  }
+  boot();
+})();
+</script>
+</body>
+</html>
