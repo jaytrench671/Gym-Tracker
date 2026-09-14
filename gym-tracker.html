@@ -364,6 +364,23 @@
     </div>
 
     <div class="card">
+      <h2>Import past workouts</h2>
+      <p class="muted">Paste workout notes in this format and they'll be added as completed history — great for backfilling old sessions or pasting from a notes app.</p>
+      <pre style="font-size:11.5px; color:var(--ink-dim); background:var(--bg-raised-2); border-radius:8px; padding:10px; white-space:pre-wrap; margin:10px 0;">2026-09-08 — Chest
+Star Trac Chest Press
+45 kg x 10
+45 kg x 5
+50 kg x 1
+
+2026-09-10 — Core
+Cable Crunch
+150 lb x 12 x 3</pre>
+      <textarea id="importText" rows="8" style="width:100%; background:var(--bg-raised-2); border:1px solid var(--line); color:var(--ink); border-radius:10px; padding:10px 12px; font-size:13px; font-family:'Inter',sans-serif;" placeholder="Paste workout notes here..."></textarea>
+      <button class="btn-primary" id="importBtn" style="margin-top:10px;">Import</button>
+      <p class="muted" id="importStatus" style="margin-top:8px;"></p>
+    </div>
+
+    <div class="card">
       <h2>Data</h2>
       <button class="btn-ghost btn-danger" id="resetBtn">Reset all local data</button>
     </div>
@@ -387,6 +404,7 @@
   let plan = { days: [] }; // {id,name,exercises:[{id,name,sets,reps,weight}]}
   let logs = {}; // dateStr -> { dayId, entries: { exerciseId: [{weight,reps,done}] } }
   let rotation = { nextDayIndex: 0 };
+  let exerciseNames = {}; // exerciseId -> display name, for imported/orphaned exercises
   let activeDayId = null;
   let todayStr = new Date().toISOString().slice(0,10);
 
@@ -413,11 +431,13 @@
     const pl = lsGet('plan'); if(pl) plan = pl;
     const lg = lsGet('logs'); if(lg) logs = lg;
     const rt = lsGet('rotation'); if(rt) rotation = rt;
+    const en = lsGet('exerciseNames'); if(en) exerciseNames = en;
   }
   async function saveProfile(){ lsSet('profile', profile); }
   async function savePlan(){ lsSet('plan', plan); }
   async function saveLogs(){ lsSet('logs', logs); }
   async function saveRotation(){ lsSet('rotation', rotation); }
+  async function saveExerciseNames(){ lsSet('exerciseNames', exerciseNames); }
 
   // ---------- nav ----------
   const views = ['today','progress','coach','compare','setup'];
@@ -639,12 +659,97 @@
   function allExercises(){
     const map = {};
     plan.days.forEach(d=> d.exercises.forEach(ex=> map[ex.id] = ex.name || 'Exercise'));
-    // include any logged exercise ids even if removed from plan
+    Object.keys(exerciseNames).forEach(id=>{ if(!map[id]) map[id] = exerciseNames[id]; });
+    // include any logged exercise ids even if removed from plan and not in exerciseNames
     Object.values(logs).forEach(l=>{
-      Object.keys(l.entries||{}).forEach(id=>{ if(!map[id]) map[id] = 'Removed exercise'; });
+      Object.keys(l.entries||{}).forEach(id=>{ if(!map[id]) map[id] = id; });
     });
     return map;
   }
+
+  function slugify(name){
+    return 'imp_' + name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40);
+  }
+
+  // ---------- import ----------
+  function parseImportText(text){
+    // returns array of { date, exercises: [{name, sets:[{weight,unit,reps}]}] }
+    const lines = text.split('\n').map(l=>l.trim());
+    const dateLineRe = /^(\d{4}-\d{2}-\d{2})\b/;
+    const setLineRe = /^(\d+(?:\.\d+)?)\s*(kg|lb|lbs)\s*[x×]\s*(\d+)(?:\s*[x×]\s*(\d+))?\s*$/i;
+    const sessions = [];
+    let curSession = null;
+    let curExercise = null;
+    lines.forEach(line=>{
+      if(!line) return;
+      const dm = line.match(dateLineRe);
+      if(dm){
+        curSession = { date: dm[1], exercises: [] };
+        sessions.push(curSession);
+        curExercise = null;
+        return;
+      }
+      const sm = line.match(setLineRe);
+      if(sm && curSession){
+        if(!curExercise){ return; } // set line before any exercise name — skip
+        const weight = parseFloat(sm[1]);
+        const unit = sm[2].toLowerCase().replace('lbs','lb');
+        const reps = parseInt(sm[3]);
+        const times = sm[4] ? parseInt(sm[4]) : 1;
+        for(let i=0;i<times;i++){
+          curExercise.sets.push({ weight, unit, reps });
+        }
+        return;
+      }
+      // otherwise treat as an exercise name line
+      if(curSession){
+        curExercise = { name: line.replace(/^[-•]\s*/,''), sets: [] };
+        curSession.exercises.push(curExercise);
+      }
+    });
+    return sessions;
+  }
+
+  function convertWeight(weight, fromUnit, toUnit){
+    if(fromUnit===toUnit) return Math.round(weight*10)/10;
+    if(fromUnit==='kg' && toUnit==='lb') return Math.round(weight*2.20462*10)/10;
+    if(fromUnit==='lb' && toUnit==='kg') return Math.round(weight/2.20462*10)/10;
+    return weight;
+  }
+
+  document.getElementById('importBtn').addEventListener('click', async ()=>{
+    const status = document.getElementById('importStatus');
+    const text = document.getElementById('importText').value;
+    if(!text.trim()){ status.textContent = 'Paste some workout notes first.'; return; }
+    const sessions = parseImportText(text);
+    if(!sessions.length){ status.textContent = "Couldn't find a date line (YYYY-MM-DD) to anchor the import. Add one at the top of each session."; return; }
+    const targetUnit = profile.unit || 'kg';
+    let setCount = 0, exCount = 0;
+    sessions.forEach(sess=>{
+      if(!logs[sess.date]) logs[sess.date] = { dayId: null, entries: {} };
+      const dayLog = logs[sess.date];
+      sess.exercises.forEach(ex=>{
+        if(!ex.sets.length) return;
+        const id = slugify(ex.name);
+        exerciseNames[id] = ex.name;
+        if(!dayLog.entries[id]) dayLog.entries[id] = [];
+        ex.sets.forEach(s=>{
+          dayLog.entries[id].push({
+            weight: convertWeight(s.weight, s.unit, targetUnit),
+            reps: s.reps,
+            done: true
+          });
+          setCount++;
+        });
+        exCount++;
+      });
+    });
+    await saveLogs();
+    await saveExerciseNames();
+    status.textContent = `Imported ${setCount} sets across ${exCount} exercise entries, ${sessions.length} session(s).`;
+    document.getElementById('importText').value = '';
+    renderProgressExOptions();
+  });
   function renderProgressExOptions(){
     const sel = document.getElementById('progressExSelect');
     const map = allExercises();
