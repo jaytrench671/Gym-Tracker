@@ -185,6 +185,7 @@
     font-weight:700;
   }
   .stepper .unit{ font-size:10px; color:var(--ink-faint); font-weight:500; }
+  .stepper .unit-toggle-btn{ font-size:10px; color:var(--chalk); font-weight:700; background:none; border:none; padding:0; text-decoration:underline; text-underline-offset:2px; }
   .check{
     width:34px; height:36px;
     border-radius:10px;
@@ -208,6 +209,7 @@
     font-weight:600;
   }
   .daypicker button.on{ background:var(--chalk); color:#1A1508; border-color:var(--chalk); }
+  .daypicker button.on-unit{ background:var(--chalk); color:#1A1508; border-color:var(--chalk); }
 
   .navbar{
     position:fixed;
@@ -288,7 +290,8 @@
   .history-item{background:var(--bg-raised-2);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px;}
   .history-item h3{margin:0 0 5px;font-size:16px;}
   .history-meta{font-size:12px;color:var(--ink-dim);margin-bottom:8px;}
-  .history-set{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:7px 0;}
+  .history-set{display:grid;grid-template-columns:1fr 0.7fr 1fr 1fr;gap:6px;margin:7px 0;}
+  .history-set select{font-size:12px;padding:8px 4px;}
   .history-set input{min-width:0;}
   .history-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
   .btn-small{padding:7px 10px;font-size:12px;}
@@ -323,7 +326,13 @@
 
   <div class="topbar">
     <h1>Plate<span>s.</span></h1>
-    <div class="date" id="topDate"></div>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <div class="date" id="topDate"></div>
+      <div class="daypicker" style="margin:0; padding:0;">
+        <button id="unitToggleKg" style="padding:5px 10px;">kg</button>
+        <button id="unitToggleLb" style="padding:5px 10px;">lb</button>
+      </div>
+    </div>
   </div>
 
   <!-- TODAY -->
@@ -412,9 +421,15 @@
     <div class="card">
       <h2>Auto-generate my plan</h2>
       <p class="muted">Builds a full workout split from your profile, InBody stats, PRs, and logged history.</p>
-      <div class="field" style="margin-top:10px;">
-        <label>Days per week</label>
-        <input type="number" id="planDaysPerWeek" value="4" min="1" max="7">
+      <div class="row2" style="margin-top:10px;">
+        <div class="field">
+          <label>Days per week</label>
+          <input type="number" id="planDaysPerWeek" value="4" min="1" max="7">
+        </div>
+        <div class="field">
+          <label>Minutes per session</label>
+          <input type="number" id="planMinutes" value="30" min="10" max="180">
+        </div>
       </div>
       <div class="field">
         <label>Goal</label>
@@ -425,6 +440,10 @@
           <option value="fat loss while preserving muscle">Fat loss, preserve muscle</option>
           <option value="general fitness and conditioning">General fitness</option>
         </select>
+      </div>
+      <div class="field">
+        <label>Focus areas (optional)</label>
+        <input type="text" id="planFocus" placeholder="e.g. upper body and core">
       </div>
       <button class="btn-primary" id="generatePlanBtn">Generate plan</button>
       <p class="muted" id="generateStatus" style="margin-top:8px;"></p>
@@ -443,10 +462,22 @@
   <div class="view" id="view-compare">
     <div class="card">
       <h2>Compare</h2>
-      <p class="muted">Estimated strength level for your best lifts, based on your bodyweight, height, age and sex. This uses general population strength norms — a rough guide, not a lab measurement.</p>
+      <p class="muted">Enter your best lifts below, plus your own strength standards (copied from StrengthLevel.com's table row for your bodyweight) for an exact comparison — no guesswork, since it's your real data.</p>
     </div>
     <div class="card" id="compareInputs"></div>
+    <div class="card">
+      <h2>Your strength standards <button class="btn-icon" id="toggleStandardsBtn">✎</button></h2>
+      <p class="muted">From StrengthLevel.com: find the row matching your current bodyweight for each lift, and copy the 5 numbers in here.</p>
+      <div id="standardsEditor" style="display:none; margin-top:10px;"></div>
+    </div>
     <div id="compareResult"></div>
+    <div class="card">
+      <h2>AI outlook</h2>
+      <p class="muted">Uses your entered standards, current lifts, and training history to give a realistic read on what's achievable next.</p>
+      <button class="btn-primary" id="getOutlookBtn" style="margin-top:10px;">Get AI outlook</button>
+      <p class="muted" id="outlookStatus" style="margin-top:8px;"></p>
+      <div id="outlookResult"></div>
+    </div>
   </div>
 
   <!-- SETUP -->
@@ -463,8 +494,9 @@
         <div class="field"><label>Weight (kg)</label><input type="number" id="profWeight" placeholder="75"></div>
         <div class="field"><label>Height (cm)</label><input type="number" id="profHeight" placeholder="178"></div>
       </div>
-      <div class="field"><label>Weight unit for logging</label>
+      <div class="field"><label>Body weight unit (for the profile fields above)</label>
         <select id="profUnit"><option value="kg">kg</option><option value="lb">lb</option></select>
+        <p class="muted" style="margin-top:6px;">This is separate from your workout weight unit — switch that anytime with the kg/lb toggle at the top of the app, since different machines report in different units.</p>
       </div>
       <p class="muted" style="margin:14px 0 8px;">From a body composition scan (InBody, DEXA, etc) — optional, but helps the AI coach tailor your plan.</p>
       <div class="row2">
@@ -529,6 +561,10 @@ Cable Crunch
 
   // ---------- state ----------
   let profile = { gender:'male', age:'28', weight:'80.1', height:'179', unit:'kg', bodyFat:'21.2', muscleMass:'36.3', bmr:'1733', scanDate:'2025-08-16' };
+  // settings.unit is the unit workouts are logged/displayed in — separate from profile.unit,
+  // which is only for body-composition stats (bodyweight/InBody). Different gym machines report
+  // in different units, so each SET stores its own unit; settings.unit is just the current display/default.
+  let settings = { unit: 'kg' };
   let plan = { days: [] }; // {id,name,exercises:[{id,name,sets,reps,weight}]}
   let logs = {}; // dateStr -> { dayId, entries: { exerciseId: [{weight,reps,done}] } }
   let rotation = { nextDayIndex: 0 };
@@ -560,12 +596,34 @@ Cable Crunch
     const lg = lsGet('logs'); if(lg) logs = lg;
     const rt = lsGet('rotation'); if(rt) rotation = rt;
     const en = lsGet('exerciseNames'); if(en) exerciseNames = en;
+    const st = lsGet('settings');
+    if(st) settings = st;
+    else if(profile.unit) settings.unit = profile.unit; // migrate old combined unit setting
   }
   async function saveProfile(){ lsSet('profile', profile); }
   async function savePlan(){ lsSet('plan', plan); }
   async function saveLogs(){ lsSet('logs', logs); }
   async function saveRotation(){ lsSet('rotation', rotation); }
   async function saveExerciseNames(){ lsSet('exerciseNames', exerciseNames); }
+  async function saveSettings(){ lsSet('settings', settings); }
+
+  function convertWeight(weight, fromUnit, toUnit){
+    if(!fromUnit || fromUnit===toUnit) return Math.round(weight*10)/10;
+    if(fromUnit==='kg' && toUnit==='lb') return Math.round(weight*2.20462*10)/10;
+    if(fromUnit==='lb' && toUnit==='kg') return Math.round(weight/2.20462*10)/10;
+    return weight;
+  }
+  function toDisplayUnit(weight, fromUnit){ return convertWeight(weight, fromUnit || settings.unit, settings.unit); }
+
+  function setUnit(u){
+    settings.unit = u;
+    saveSettings();
+    document.getElementById('unitToggleKg').classList.toggle('on-unit', u==='kg');
+    document.getElementById('unitToggleLb').classList.toggle('on-unit', u==='lb');
+    renderToday(); renderProgress(); renderCompare(); renderHistory();
+  }
+  document.getElementById('unitToggleKg').addEventListener('click', ()=> setUnit('kg'));
+  document.getElementById('unitToggleLb').addEventListener('click', ()=> setUnit('lb'));
 
   // ---------- nav ----------
   const views = ['today','history','progress','coach','compare','setup'];
@@ -769,13 +827,16 @@ Cable Crunch
   }
 
   function lastWeightFor(exId, exDefault){
-    // find most recent logged weight for this exercise across history
+    // find most recent logged weight for this exercise across history, converted to the current display unit
     const dates = Object.keys(logs).sort().reverse();
     for(const d of dates){
       const entry = logs[d].entries && logs[d].entries[exId];
       if(entry && entry.length){
         const withWeight = entry.filter(s=>s.weight);
-        if(withWeight.length) return withWeight[withWeight.length-1].weight;
+        if(withWeight.length){
+          const last = withWeight[withWeight.length-1];
+          return toDisplayUnit(last.weight, last.unit);
+        }
       }
     }
     return exDefault || 0;
@@ -802,20 +863,21 @@ Cable Crunch
     day.exercises.forEach(ex=>{
       if(!log.entries[ex.id]){
         const startWeight = lastWeightFor(ex.id, ex.weight);
-        log.entries[ex.id] = Array.from({length: ex.sets}, ()=>({ weight: startWeight, reps: ex.reps, done:false }));
+        log.entries[ex.id] = Array.from({length: ex.sets}, ()=>({ weight: startWeight, unit: settings.unit, reps: ex.reps, done:false }));
       }
       const sets = log.entries[ex.id];
       const block = document.createElement('div');
       block.className = 'exercise-block';
       block.innerHTML = `<div class="ex-title">${escapeAttr(ex.name||'Exercise')}</div><div class="ex-sub">Target: ${ex.sets} × ${ex.reps}</div>`;
       sets.forEach((s, si)=>{
+        if(!s.unit) s.unit = settings.unit;
         const row = document.createElement('div');
         row.className = 'set-row';
         row.innerHTML = `
           <div class="set-num">${si+1}</div>
           <div class="stepper" data-k="weight">
             <button class="minus">−</button>
-            <div class="val">${s.weight}<div class="unit">${profile.unit||'kg'}</div></div>
+            <div class="val">${s.weight}<button type="button" class="unit-toggle-btn">${s.unit}</button></div>
             <button class="plus">+</button>
           </div>
           <div class="stepper" data-k="reps">
@@ -826,9 +888,16 @@ Cable Crunch
           <button class="check ${s.done?'on':''}">✓</button>
         `;
         const [wStep, rStep] = row.querySelectorAll('.stepper');
-        const step = (unit)=> unit==='weight' ? (profile.unit==='lb'?5:2.5) : 1;
-        wStep.querySelector('.plus').addEventListener('click', ()=>{ s.weight = +(s.weight + step('weight')).toFixed(1); saveLogs(); renderToday(); });
-        wStep.querySelector('.minus').addEventListener('click', ()=>{ s.weight = Math.max(0, +(s.weight - step('weight')).toFixed(1)); saveLogs(); renderToday(); });
+        const weightStep = ()=> s.unit==='lb' ? 5 : 2.5;
+        wStep.querySelector('.plus').addEventListener('click', ()=>{ s.weight = +(s.weight + weightStep()).toFixed(1); saveLogs(); renderToday(); });
+        wStep.querySelector('.minus').addEventListener('click', ()=>{ s.weight = Math.max(0, +(s.weight - weightStep()).toFixed(1)); saveLogs(); renderToday(); });
+        wStep.querySelector('.unit-toggle-btn').addEventListener('click', (e)=>{
+          e.stopPropagation();
+          const newUnit = s.unit==='kg' ? 'lb' : 'kg';
+          s.weight = convertWeight(s.weight, s.unit, newUnit);
+          s.unit = newUnit;
+          saveLogs(); renderToday();
+        });
         rStep.querySelector('.plus').addEventListener('click', ()=>{ s.reps = s.reps + 1; saveLogs(); renderToday(); });
         rStep.querySelector('.minus').addEventListener('click', ()=>{ s.reps = Math.max(0, s.reps - 1); saveLogs(); renderToday(); });
         row.querySelector('.check').addEventListener('click', (e)=>{ s.done = !s.done; saveLogs(); e.target.classList.toggle('on', s.done); });
@@ -911,20 +980,12 @@ Cable Crunch
     return sessions;
   }
 
-  function convertWeight(weight, fromUnit, toUnit){
-    if(fromUnit===toUnit) return Math.round(weight*10)/10;
-    if(fromUnit==='kg' && toUnit==='lb') return Math.round(weight*2.20462*10)/10;
-    if(fromUnit==='lb' && toUnit==='kg') return Math.round(weight/2.20462*10)/10;
-    return weight;
-  }
-
   document.getElementById('importBtn').addEventListener('click', async ()=>{
     const status = document.getElementById('importStatus');
     const text = document.getElementById('importText').value;
     if(!text.trim()){ status.textContent = 'Paste some workout notes first.'; return; }
     const sessions = parseImportText(text);
     if(!sessions.length){ status.textContent = "Couldn't find a date line (YYYY-MM-DD) to anchor the import. Add one at the top of each session."; return; }
-    const targetUnit = profile.unit || 'kg';
     let setCount = 0, exCount = 0;
     sessions.forEach(sess=>{
       if(!logs[sess.date]) logs[sess.date] = { dayId: null, entries: {} };
@@ -936,7 +997,8 @@ Cable Crunch
         if(!dayLog.entries[id]) dayLog.entries[id] = [];
         ex.sets.forEach(s=>{
           dayLog.entries[id].push({
-            weight: convertWeight(s.weight, s.unit, targetUnit),
+            weight: s.weight,
+            unit: s.unit,
             reps: s.reps,
             done: true
           });
@@ -1004,17 +1066,23 @@ Cable Crunch
     const day = logs[date];
     const entries = day && day.entries ? day.entries : {};
     const ids = Object.keys(entries);
-    if(!ids.length) return `<p class="muted">No sets logged this day.</p>`;
     let html = '';
+    if(!ids.length){
+      html += `<p class="muted">No sets logged this day.</p>`;
+    }
     ids.forEach(id=>{
       const name = (allExercises())[id] || id;
       const sets = entries[id] || [];
       html += `<div style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px;">
         <strong>${esc(name)}</strong>
-        <div>`;
+        <div class="history-rows" data-rows-for="${esc(date)}|${esc(id)}">`;
       sets.forEach((s,i)=>{
         html += `<div class="history-set" data-date="${esc(date)}" data-id="${esc(id)}" data-index="${i}">
           <input type="number" step="0.1" class="h-weight" value="${esc(s.weight)}" aria-label="Weight">
+          <select class="h-unit" aria-label="Unit">
+            <option value="kg" ${(s.unit||settings.unit)==='kg'?'selected':''}>kg</option>
+            <option value="lb" ${(s.unit||settings.unit)==='lb'?'selected':''}>lb</option>
+          </select>
           <input type="number" class="h-reps" value="${esc(s.reps)}" aria-label="Reps">
           <select class="h-done" aria-label="Completed">
             <option value="true" ${s.done!==false?'selected':''}>Done</option>
@@ -1022,21 +1090,68 @@ Cable Crunch
           </select>
         </div>`;
       });
-      html += `<div class="history-actions">
+      html += `</div>
+      <div class="history-actions">
+        <button class="btn-ghost btn-small" data-add-set="${esc(date)}|${esc(id)}">+ Add set</button>
         <button class="btn-primary btn-small" data-save-history="${esc(date)}|${esc(id)}">Save</button>
         <button class="btn-ghost btn-small" data-delete-history="${esc(date)}|${esc(id)}">Delete exercise</button>
       </div></div>`;
     });
+    html += `<div style="border-top:1px solid var(--line);padding-top:12px;margin-top:12px;" data-add-exercise-block="${esc(date)}">
+      <label style="display:block;margin-bottom:6px;">Add exercise to this day</label>
+      <div style="display:flex; gap:8px;">
+        <input type="text" class="new-ex-name" placeholder="Exercise name" style="flex:1;">
+        <button class="btn-primary btn-small" data-add-exercise="${esc(date)}">Add</button>
+      </div>
+    </div>`;
     return html;
   }
 
   function wireDayEditor(container){
+    container.querySelectorAll('[data-add-set]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const [date,id] = btn.dataset.addSet.split('|');
+        const rowsWrap = container.querySelector(`[data-rows-for="${CSS.escape(date+'|'+id)}"]`);
+        const row = document.createElement('div');
+        row.className = 'history-set';
+        row.dataset.date = date; row.dataset.id = id;
+        row.innerHTML = `
+          <input type="number" step="0.1" class="h-weight" value="0" aria-label="Weight">
+          <select class="h-unit" aria-label="Unit">
+            <option value="kg" ${settings.unit==='kg'?'selected':''}>kg</option>
+            <option value="lb" ${settings.unit==='lb'?'selected':''}>lb</option>
+          </select>
+          <input type="number" class="h-reps" value="0" aria-label="Reps">
+          <select class="h-done" aria-label="Completed">
+            <option value="true">Done</option>
+            <option value="false" selected>Not done</option>
+          </select>`;
+        rowsWrap.appendChild(row);
+      });
+    });
+    container.querySelectorAll('[data-add-exercise]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const date = btn.dataset.addExercise;
+        const block = container.querySelector(`[data-add-exercise-block="${CSS.escape(date)}"]`);
+        const input = block.querySelector('.new-ex-name');
+        const name = (input.value||'').trim();
+        if(!name) return;
+        const id = slugify(name);
+        exerciseNames[id] = name;
+        if(!logs[date]) logs[date] = { dayId:null, entries:{} };
+        if(!logs[date].entries[id]) logs[date].entries[id] = [];
+        logs[date].entries[id].push({ weight:0, unit: settings.unit, reps:0, done:false });
+        await saveLogs(); await saveExerciseNames();
+        renderCalendar(); renderHistoryDay(); renderHistorySearch(); renderProgressExOptions(); renderExerciseManager();
+      });
+    });
     container.querySelectorAll('[data-save-history]').forEach(btn=>{
       btn.addEventListener('click', async ()=>{
         const [date,id] = btn.dataset.saveHistory.split('|');
         const rows = [...container.querySelectorAll(`.history-set[data-date="${CSS.escape(date)}"][data-id="${CSS.escape(id)}"]`)];
         logs[date].entries[id] = rows.map(row=>({
           weight: Number(row.querySelector('.h-weight').value)||0,
+          unit: row.querySelector('.h-unit').value,
           reps: Number(row.querySelector('.h-reps').value)||0,
           done: row.querySelector('.h-done').value==='true'
         }));
@@ -1088,6 +1203,10 @@ Cable Crunch
         sets.forEach((s,i)=>{
           html += `<div class="history-set" data-date="${esc(date)}" data-id="${esc(id)}" data-index="${i}">
             <input type="number" step="0.1" class="h-weight" value="${esc(s.weight)}" aria-label="Weight">
+            <select class="h-unit" aria-label="Unit">
+              <option value="kg" ${(s.unit||settings.unit)==='kg'?'selected':''}>kg</option>
+              <option value="lb" ${(s.unit||settings.unit)==='lb'?'selected':''}>lb</option>
+            </select>
             <input type="number" class="h-reps" value="${esc(s.reps)}" aria-label="Reps">
             <select class="h-done" aria-label="Completed">
               <option value="true" ${s.done!==false?'selected':''}>Done</option>
@@ -1120,7 +1239,7 @@ Cable Crunch
       const entry = logs[d].entries && logs[d].entries[exId];
       if(entry && entry.some(s=>s.done)){
         const doneSets = entry.filter(s=>s.done);
-        const top = Math.max(...doneSets.map(s=>s.weight));
+        const top = Math.max(...doneSets.map(s=>toDisplayUnit(s.weight, s.unit)));
         const totalReps = doneSets.reduce((a,s)=>a+s.reps,0);
         out.push({ date:d, top, totalReps });
       }
@@ -1155,7 +1274,7 @@ Cable Crunch
       <line x1="${pad}" y1="${H-pad}" x2="${W-pad}" y2="${H-pad}" stroke="#2C3542" stroke-width="1"/>
       <path d="${path}" fill="none" stroke="#E9C25E" stroke-width="2.5"/>
       ${dots}
-      <text x="${pad}" y="14" fill="#9AA5B4" font-size="11">${maxW}${profile.unit||'kg'}</text>
+      <text x="${pad}" y="14" fill="#9AA5B4" font-size="11">${maxW}${settings.unit||'kg'}</text>
       <text x="${pad}" y="${H-8}" fill="#5D6875" font-size="10">${hist[0].date.slice(5)}</text>
       <text x="${W-pad}" y="${H-8}" fill="#5D6875" font-size="10" text-anchor="end">${hist[hist.length-1].date.slice(5)}</text>
     `;
@@ -1163,9 +1282,9 @@ Cable Crunch
     const sessions = hist.length;
     const lastSession = hist[hist.length-1];
     prGrid.innerHTML = `
-      <div class="pr-item"><div class="n">${best}${profile.unit||'kg'}</div><div class="l">Best set logged</div></div>
+      <div class="pr-item"><div class="n">${best}${settings.unit||'kg'}</div><div class="l">Best set logged</div></div>
       <div class="pr-item"><div class="n">${sessions}</div><div class="l">Sessions logged</div></div>
-      <div class="pr-item"><div class="n">${lastSession.top}${profile.unit||'kg'}</div><div class="l">Last session top set</div></div>
+      <div class="pr-item"><div class="n">${lastSession.top}${settings.unit||'kg'}</div><div class="l">Last session top set</div></div>
       <div class="pr-item"><div class="n">${lastSession.totalReps}</div><div class="l">Reps last session</div></div>
     `;
   }
@@ -1240,17 +1359,17 @@ Cable Crunch
     return hist.reduce((a,b)=> b.top>a.top ? b : a);
   }
 
-  function buildFullContext(goalText, daysPerWeek){
+  function buildFullContext(goalText, daysPerWeek, minutesPerSession, focusText){
     const exMap = allExercises();
     const prLines = Object.entries(exMap).map(([id,name])=>{
       const best = bestSetFor(id);
       if(!best) return null;
-      return `${name}: best set ${best.top}${profile.unit||'kg'} (as of ${best.date})`;
+      return `${name}: best set ${best.top}${settings.unit||'kg'} (as of ${best.date})`;
     }).filter(Boolean).join('\n');
     const recentLines = Object.entries(exMap).map(([id,name])=>{
       const hist = historyFor(id).slice(-4);
       if(!hist.length) return null;
-      return `${name}: ` + hist.map(h=>`${h.date} top set ${h.top}${profile.unit||'kg'}, ${h.totalReps} total reps`).join('; ');
+      return `${name}: ` + hist.map(h=>`${h.date} top set ${h.top}${settings.unit||'kg'}, ${h.totalReps} total reps`).join('; ');
     }).filter(Boolean).join('\n');
     const planText = plan.days.map(d=> d.name + ': ' + d.exercises.map(e=>`${e.name} ${e.sets}x${e.reps}`).join(', ')).join('\n');
 
@@ -1260,6 +1379,8 @@ Cable Crunch
 - Body fat: ${profile.bodyFat||'unknown'}%, Skeletal muscle mass: ${profile.muscleMass||'unknown'} kg, BMR: ${profile.bmr||'unknown'} kcal (from a body scan dated ${profile.scanDate||'unknown'})
 ${goalText ? `- Goal: ${goalText}` : ''}
 ${daysPerWeek ? `- Wants to train ${daysPerWeek} days per week` : ''}
+${minutesPerSession ? `- Only has about ${minutesPerSession} minutes per session — keep total exercise count and rest periods realistic for that time budget` : ''}
+${focusText ? `- Wants extra emphasis on: ${focusText} (give these more exercises/volume than other areas, without completely ignoring the rest of the body)` : ''}
 
 Current workout plan:
 ${planText || '(no plan set yet)'}
@@ -1273,7 +1394,7 @@ ${recentLines || '(no sessions logged yet)'}`;
 
   document.getElementById('copySummaryBtn').addEventListener('click', async ()=>{
     const status = document.getElementById('copyStatus');
-    const text = `Here's my training data — can you suggest weight/rep adjustments for my next session of each exercise, plus any coaching notes?\n\n` + buildFullContext('', '');
+    const text = `Here's my training data — can you suggest weight/rep adjustments for my next session of each exercise, plus any coaching notes?\n\n` + buildFullContext('', '', '', '');
     try{
       await navigator.clipboard.writeText(text);
       status.textContent = 'Copied — paste it into any AI chat.';
@@ -1334,9 +1455,9 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
   }
 
   async function callGemini(apiKey, prompt){
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${encodeURIComponent(apiKey)}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }]
       })
@@ -1348,60 +1469,89 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
     return parts.map(p=>p.text||'').join('\n').trim();
   }
 
-  let pendingGeneratedPlan = null;
+  let generatedPlanOptions = []; // array of {days:[...]} from the AI
+  let activePlanOptionIndex = 0;
 
-  document.getElementById('generatePlanBtn').addEventListener('click', async ()=>{
+  function renderPlanPreview(){
+    const previewWrap = document.getElementById('planPreviewWrap');
+    if(!generatedPlanOptions.length){ previewWrap.innerHTML=''; return; }
+    const tabs = generatedPlanOptions.map((_,i)=>
+      `<button class="btn-ghost btn-small" data-opt-tab="${i}" style="${i===activePlanOptionIndex?'background:var(--chalk);color:#1A1508;border-color:var(--chalk);':''}">Option ${i+1}</button>`
+    ).join(' ');
+    const opt = generatedPlanOptions[activePlanOptionIndex];
+    previewWrap.innerHTML = `<div class="card">
+      <h2>Proposed plan</h2>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;">${tabs}</div>
+      ${opt.days.map(d=>`<div class="plan-preview"><h4>${escapeAttr(d.name)}</h4>` +
+        d.exercises.map(e=>`<div class="pe">${escapeAttr(e.name)} — ${e.sets}×${e.reps}${e.startingWeight?` @ ${e.startingWeight}${settings.unit||'kg'}`:''}</div>`).join('') +
+      `</div>`).join('')}
+      <button class="btn-primary" id="applyPlanBtn" style="margin-top:6px;">Apply this plan</button>
+      <button class="btn-ghost" id="generateAltBtn" style="margin-top:8px; width:100%;">Generate an alternative</button>
+      <button class="btn-ghost" id="discardPlanBtn" style="margin-top:8px; width:100%;">Discard all</button>
+    </div>`;
+
+    previewWrap.querySelectorAll('[data-opt-tab]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{ activePlanOptionIndex = Number(btn.dataset.optTab); renderPlanPreview(); });
+    });
+    document.getElementById('applyPlanBtn').addEventListener('click', async ()=>{
+      if(!confirm('This replaces your current workout plan. Continue?')) return;
+      const chosen = generatedPlanOptions[activePlanOptionIndex];
+      plan.days = chosen.days.map(d=>({
+        id: uid(),
+        name: d.name,
+        exercises: d.exercises.map(e=>({ id: uid(), name: e.name, sets: e.sets||3, reps: e.reps||8, weight: e.startingWeight||0 }))
+      }));
+      await savePlan();
+      rotation.nextDayIndex = 0; await saveRotation();
+      activeDayId = null;
+      renderPlanEditor(); renderDayPicker(); renderToday(); renderProgressExOptions(); renderExerciseManager();
+      generatedPlanOptions = []; activePlanOptionIndex = 0;
+      previewWrap.innerHTML = '<div class="card"><p class="muted">Plan applied — check Today and Setup.</p></div>';
+    });
+    document.getElementById('generateAltBtn').addEventListener('click', ()=> generatePlan(true));
+    document.getElementById('discardPlanBtn').addEventListener('click', ()=>{
+      generatedPlanOptions = []; activePlanOptionIndex = 0; previewWrap.innerHTML='';
+    });
+  }
+
+  async function generatePlan(isAlternative){
     const btn = document.getElementById('generatePlanBtn');
     const status = document.getElementById('generateStatus');
-    const previewWrap = document.getElementById('planPreviewWrap');
     const provider = aiConfig.provider;
     const key = { claude: aiConfig.anthropicKey, openai: aiConfig.openaiKey, gemini: aiConfig.geminiKey }[provider];
     const providerLabel = { claude:'Anthropic', openai:'OpenAI', gemini:'Gemini' }[provider];
     if(!key){ status.textContent = `Add your ${providerLabel} API key above first, then save.`; return; }
     const daysPerWeek = document.getElementById('planDaysPerWeek').value || '4';
+    const minutes = document.getElementById('planMinutes').value || '30';
     const goal = document.getElementById('planGoal').value;
-    btn.disabled = true;
-    status.innerHTML = `<span class="spinner"></span>Building your plan…`;
-    previewWrap.innerHTML = '';
+    const focus = document.getElementById('planFocus').value.trim();
+    if(btn) btn.disabled = true;
+    status.innerHTML = `<span class="spinner"></span>${isAlternative ? 'Building an alternative…' : 'Building your plan…'}`;
     try{
-      const prompt = buildFullContext(goal, daysPerWeek) + '\n\n' + PLAN_JSON_INSTRUCTIONS;
+      let prompt = buildFullContext(goal, daysPerWeek, minutes, focus) + '\n\n' + PLAN_JSON_INSTRUCTIONS;
+      if(isAlternative && generatedPlanOptions.length){
+        prompt += `\n\nGive a genuinely different split/approach than this previous suggestion (different day structure or exercise selection), not a minor tweak:\n${JSON.stringify(generatedPlanOptions[generatedPlanOptions.length-1])}`;
+      }
       const callers = { claude: callClaude, openai: callOpenAI, gemini: callGemini };
       const raw = await callers[provider](key, prompt);
       const clean = raw.replace(/```json|```/g,'').trim();
       const parsed = JSON.parse(clean);
       if(!parsed.days || !parsed.days.length) throw new Error('No plan returned');
-      pendingGeneratedPlan = parsed;
-      previewWrap.innerHTML = `<div class="card"><h2>Proposed plan</h2>` +
-        parsed.days.map(d=>`<div class="plan-preview"><h4>${escapeAttr(d.name)}</h4>` +
-          d.exercises.map(e=>`<div class="pe">${escapeAttr(e.name)} — ${e.sets}×${e.reps}${e.startingWeight?` @ ${e.startingWeight}${profile.unit||'kg'}`:''}</div>`).join('') +
-        `</div>`).join('') +
-        `<button class="btn-primary" id="applyPlanBtn" style="margin-top:6px;">Apply this plan</button>
-         <button class="btn-ghost" id="discardPlanBtn" style="margin-top:8px; width:100%;">Discard</button></div>`;
+      generatedPlanOptions.push(parsed);
+      activePlanOptionIndex = generatedPlanOptions.length - 1;
       status.textContent = '';
-      document.getElementById('applyPlanBtn').addEventListener('click', async ()=>{
-        if(!confirm('This replaces your current workout plan. Continue?')) return;
-        plan.days = pendingGeneratedPlan.days.map(d=>({
-          id: uid(),
-          name: d.name,
-          exercises: d.exercises.map(e=>({ id: uid(), name: e.name, sets: e.sets||3, reps: e.reps||8, weight: e.startingWeight||0 }))
-        }));
-        await savePlan();
-        rotation.nextDayIndex = 0; await saveRotation();
-        activeDayId = null;
-        renderPlanEditor(); renderDayPicker(); renderToday(); renderProgressExOptions(); renderExerciseManager();
-        previewWrap.innerHTML = '<div class="card"><p class="muted">Plan applied — check Today and Setup.</p></div>';
-      });
-      document.getElementById('discardPlanBtn').addEventListener('click', ()=>{ previewWrap.innerHTML=''; pendingGeneratedPlan=null; });
+      renderPlanPreview();
     }catch(err){
       console.error(err);
       status.textContent = 'Could not generate a plan: ' + (err.message || 'unknown error');
     }
-    btn.disabled = false;
-  });
+    if(btn) btn.disabled = false;
+  }
 
-  // ---------- compare ----------
-  // Rough population strength-standard multipliers of bodyweight, by sex, for 4 lifts.
-  // Levels: beginner < novice < intermediate < advanced < elite (approximate, for general guidance only).
+  document.getElementById('generatePlanBtn').addEventListener('click', ()=> generatePlan(false));
+
+  // Fallback rough population strength-standard multipliers of bodyweight, by sex — used only until
+  // the person enters their own exact standards from StrengthLevel.com below.
   const STANDARDS = {
     male: {
       squat:    [0.5, 0.75, 1.25, 1.75, 2.25],
@@ -1417,21 +1567,70 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
     }
   };
   const TIER_NAMES = ['Beginner','Novice','Intermediate','Advanced','Elite'];
-  const LIFTS = [ ['squat','Squat'], ['bench','Bench press'], ['deadlift','Deadlift'], ['overhead','Overhead press'] ];
+  const LIFTS = [ ['squat','Squat','squat'], ['bench','Bench press','bench-press'], ['deadlift','Deadlift','deadlift'], ['overhead','Overhead press','overhead-press'] ];
 
   let compareLifts = { squat:'', bench:'', deadlift:'', overhead:'' };
+  let customStandards = {}; // { squat: {beginner,novice,intermediate,advanced,elite}, ... }
+  async function loadCustomStandards(){ const c = lsGet('customStandards'); if(c) customStandards = c; }
+  async function saveCustomStandards(){ lsSet('customStandards', customStandards); }
 
   function renderCompareInputs(){
     const wrap = document.getElementById('compareInputs');
-    wrap.innerHTML = '<label style="margin-bottom:10px;">Your best set (1 rep or close to it)</label>' + LIFTS.map(([k,label])=>`
+    wrap.innerHTML = '<label style="margin-bottom:10px;">Your best set (1 rep or close to it)</label>' + LIFTS.map(([k,label,slug])=>`
       <div class="lift-input-row">
         <span>${label}</span>
-        <input type="number" data-lift="${k}" value="${compareLifts[k]}" placeholder="${profile.unit||'kg'}">
+        <input type="number" data-lift="${k}" value="${compareLifts[k]}" placeholder="${settings.unit||'kg'}">
       </div>
     `).join('');
     wrap.querySelectorAll('input').forEach(inp=>{
       inp.addEventListener('input', ()=>{ compareLifts[inp.dataset.lift] = inp.value; renderCompareResult(); });
     });
+  }
+
+  function renderStandardsEditor(){
+    const wrap = document.getElementById('standardsEditor');
+    wrap.innerHTML = LIFTS.map(([k,label])=>{
+      const s = customStandards[k] || {};
+      return `<div style="margin-bottom:14px;">
+        <div style="font-weight:600; font-size:13.5px; margin-bottom:6px;">${label} (${settings.unit||'kg'})</div>
+        <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:6px;">
+          ${TIER_NAMES.map(t=>{
+            const key = t.toLowerCase();
+            return `<div><label style="font-size:9.5px;">${t}</label><input type="number" data-std-lift="${k}" data-std-tier="${key}" value="${s[key]||''}" style="padding:6px 4px; font-size:11.5px;"></div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    }).join('') + `<button class="btn-primary" id="saveStandardsBtn">Save standards</button>`;
+
+    wrap.querySelectorAll('[data-std-lift]').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const k = inp.dataset.stdLift, tier = inp.dataset.stdTier;
+        if(!customStandards[k]) customStandards[k] = {};
+        customStandards[k][tier] = inp.value;
+      });
+    });
+    document.getElementById('saveStandardsBtn').addEventListener('click', async ()=>{
+      await saveCustomStandards();
+      renderCompareResult();
+      const btn = document.getElementById('saveStandardsBtn');
+      const old = btn.textContent; btn.textContent = 'Saved ✓';
+      setTimeout(()=>btn.textContent = old, 1200);
+    });
+  }
+  document.getElementById('toggleStandardsBtn').addEventListener('click', ()=>{
+    const el = document.getElementById('standardsEditor');
+    el.style.display = el.style.display==='none' ? '' : 'none';
+    if(el.style.display!=='none') renderStandardsEditor();
+  });
+
+  function getThresholdsFor(k, sex, bw){
+    const custom = customStandards[k];
+    const hasFullCustom = custom && TIER_NAMES.every(t=> custom[t.toLowerCase()] !== undefined && custom[t.toLowerCase()] !== '');
+    if(hasFullCustom){
+      return { values: TIER_NAMES.map(t=>parseFloat(custom[t.toLowerCase()])), isCustom: true };
+    }
+    const ratios = STANDARDS[sex][k];
+    return { values: ratios.map(r=>Math.round(r*bw*10)/10), isCustom: false };
   }
 
   function renderCompareResult(){
@@ -1443,26 +1642,75 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
     }
     const sex = profile.gender==='female' ? 'female' : 'male';
     let html = '';
-    LIFTS.forEach(([k,label])=>{
+    LIFTS.forEach(([k,label,slug])=>{
       const val = parseFloat(compareLifts[k]);
       if(!val) return;
-      const ratio = val / bw;
-      const thresholds = STANDARDS[sex][k];
+      const { values: thresholds, isCustom } = getThresholdsFor(k, sex, bw);
       let tierIdx = 0;
-      thresholds.forEach((t,i)=>{ if(ratio >= t) tierIdx = i+1; });
+      thresholds.forEach((t,i)=>{ if(val >= t) tierIdx = i+1; });
       tierIdx = Math.min(tierIdx, TIER_NAMES.length-1);
-      const nextThreshold = thresholds[tierIdx] || thresholds[thresholds.length-1]*1.15;
+      const atMax = tierIdx === TIER_NAMES.length-1 && val >= thresholds[thresholds.length-1];
+      const nextThreshold = thresholds[tierIdx] !== undefined ? thresholds[tierIdx] : thresholds[thresholds.length-1]*1.15;
       const prevThreshold = tierIdx>0 ? thresholds[tierIdx-1] : 0;
-      const pct = Math.min(100, Math.max(4, ((ratio-prevThreshold)/((nextThreshold-prevThreshold)||1))*100));
+      const pct = Math.min(100, Math.max(4, ((val-prevThreshold)/((nextThreshold-prevThreshold)||1))*100));
+      const gap = Math.max(0, Math.round((nextThreshold - val)*10)/10);
+      const slUrl = `https://strengthlevel.com/strength-standards/${slug}/${settings.unit==='lb'?'lb':'kg'}`;
       html += `<div class="card">
         <h2>${label}</h2>
-        <div class="muted">${val}${profile.unit||'kg'} · ${ratio.toFixed(2)}× bodyweight</div>
+        <div class="muted">${val}${settings.unit||'kg'}${isCustom ? '' : ` · ${(val/bw).toFixed(2)}× bodyweight`}</div>
         <div class="tier-bar"><div class="tier-fill" style="width:${pct}%"></div></div>
-        <div style="font-family:'Barlow Condensed',sans-serif; font-size:19px; font-weight:700; color:var(--chalk);">${TIER_NAMES[tierIdx]}</div>
+        <div style="font-family:'Barlow Condensed',sans-serif; font-size:19px; font-weight:700; color:var(--chalk);">${TIER_NAMES[tierIdx]} ${isCustom ? '' : '<span class="muted" style="font-family:\'Inter\',sans-serif; font-size:11px; font-weight:500;">(our rough estimate)</span>'}</div>
+        ${atMax ? `<div class="muted" style="margin-top:6px;">You're at the top of your entered standards for this lift 💪</div>` :
+          `<div class="muted" style="margin-top:6px;">${gap}${settings.unit||'kg'} more to reach ${TIER_NAMES[Math.min(tierIdx+ (isCustom?0:1), TIER_NAMES.length-1)] || TIER_NAMES[tierIdx]}${isCustom ? '' : ' (next level)'}</div>`}
+        ${!isCustom ? `<a href="${slUrl}" target="_blank" rel="noopener" style="display:inline-block; margin-top:8px; font-size:12.5px; color:var(--steel);">Enter your exact standards above for a precise comparison →</a>` : ''}
       </div>`;
     });
     wrap.innerHTML = html || `<div class="card"><p class="muted">Enter at least one lift above to see where you stand.</p></div>`;
   }
+
+  // ---------- AI outlook ----------
+  function buildOutlookPrompt(){
+    const bw = profile.weight || 'unknown';
+    const sex = profile.gender==='female' ? 'female' : 'male';
+    const liftLines = LIFTS.map(([k,label])=>{
+      const val = compareLifts[k];
+      if(!val) return null;
+      const std = customStandards[k];
+      const stdLine = std ? TIER_NAMES.map(t=>`${t}: ${std[t.toLowerCase()]||'?'}`).join(', ') : '(no standards entered)';
+      return `${label}: current best ${val}${settings.unit||'kg'}. Their standards — ${stdLine}`;
+    }).filter(Boolean).join('\n');
+    if(!liftLines) return null;
+    return `Athlete: ${sex}, age ${profile.age||'unknown'}, bodyweight ${bw}${profile.unit||'kg'}, training goal context from their broader profile below.
+
+${buildFullContext('', '', '', '')}
+
+Their main lift standards (self-reported from StrengthLevel.com, in ${settings.unit||'kg'}):
+${liftLines}
+
+Give a realistic, encouraging but honest outlook: for each lift, estimate roughly how many weeks or training blocks it might reasonably take to close the gap to their next strength level, based on typical progression rates for their level and how their logged history looks. Call out 1-2 concrete near-term milestones ("in the next few weeks/sessions you could realistically...") rather than vague generalities. Keep it to a few short paragraphs, plain text, no markdown headers.`;
+  }
+
+  document.getElementById('getOutlookBtn').addEventListener('click', async ()=>{
+    const status = document.getElementById('outlookStatus');
+    const resultWrap = document.getElementById('outlookResult');
+    const provider = aiConfig.provider;
+    const key = { claude: aiConfig.anthropicKey, openai: aiConfig.openaiKey, gemini: aiConfig.geminiKey }[provider];
+    const providerLabel = { claude:'Anthropic', openai:'OpenAI', gemini:'Gemini' }[provider];
+    if(!key){ status.textContent = `Add your ${providerLabel} API key in the Coach tab first.`; return; }
+    const prompt = buildOutlookPrompt();
+    if(!prompt){ status.textContent = 'Enter at least one current lift above first.'; return; }
+    status.innerHTML = `<span class="spinner"></span>Thinking it through…`;
+    resultWrap.innerHTML = '';
+    try{
+      const callers = { claude: callClaude, openai: callOpenAI, gemini: callGemini };
+      const raw = await callers[provider](key, prompt);
+      status.textContent = '';
+      resultWrap.innerHTML = `<div class="card"><div class="coach-msg">${escapeAttr(raw)}</div></div>`;
+    }catch(err){
+      console.error(err);
+      status.textContent = 'Could not get an outlook: ' + (err.message || 'unknown error');
+    }
+  });
 
   function renderCompare(){
     renderCompareInputs();
@@ -1473,6 +1721,9 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
   async function boot(){
     await loadAll();
     await loadAiConfig();
+    await loadCustomStandards();
+    document.getElementById('unitToggleKg').classList.toggle('on-unit', settings.unit==='kg');
+    document.getElementById('unitToggleLb').classList.toggle('on-unit', settings.unit==='lb');
     fillProfileForm();
     fillAiConfigForm();
     renderPlanEditor();
