@@ -154,11 +154,13 @@
 
   .set-row{
     display:grid;
-    grid-template-columns:28px 1fr 1fr 34px;
-    gap:8px;
+    grid-template-columns:22px 1fr 1fr 34px 28px;
+    gap:6px;
     align-items:center;
     margin-bottom:8px;
   }
+  .set-remove{ background:none; border:none; color:var(--ink-faint); font-size:16px; width:28px; height:36px; }
+  .set-remove:active{ color:var(--bad); }
   .set-num{ font-family:'Barlow Condensed',sans-serif; font-weight:700; color:var(--ink-faint); font-size:15px; text-align:center; }
   .stepper{
     display:flex;
@@ -290,8 +292,10 @@
   .history-item{background:var(--bg-raised-2);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px;}
   .history-item h3{margin:0 0 5px;font-size:16px;}
   .history-meta{font-size:12px;color:var(--ink-dim);margin-bottom:8px;}
-  .history-set{display:grid;grid-template-columns:1fr 0.7fr 1fr 1fr;gap:6px;margin:7px 0;}
+  .history-set{display:grid;grid-template-columns:1fr 0.7fr 1fr 1fr 26px;gap:6px;margin:7px 0;align-items:center;}
   .history-set select{font-size:12px;padding:8px 4px;}
+  .history-set-remove{background:none;border:none;color:var(--ink-faint);font-size:15px;}
+  .history-set-remove:active{color:var(--bad);}
   .history-set input{min-width:0;}
   .history-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
   .btn-small{padding:7px 10px;font-size:12px;}
@@ -491,7 +495,7 @@
         <div class="field"><label>Age</label><input type="number" id="profAge" placeholder="28"></div>
       </div>
       <div class="row2">
-        <div class="field"><label>Weight (kg)</label><input type="number" id="profWeight" placeholder="75"></div>
+        <div class="field"><label id="profWeightLabel">Weight (kg)</label><input type="number" id="profWeight" placeholder="75"></div>
         <div class="field"><label>Height (cm)</label><input type="number" id="profHeight" placeholder="178"></div>
       </div>
       <div class="field"><label>Body weight unit (for the profile fields above)</label>
@@ -501,7 +505,7 @@
       <p class="muted" style="margin:14px 0 8px;">From a body composition scan (InBody, DEXA, etc) — optional, but helps the AI coach tailor your plan.</p>
       <div class="row2">
         <div class="field"><label>Body fat %</label><input type="number" step="0.1" id="profBodyFat" placeholder="21.2"></div>
-        <div class="field"><label>Skeletal muscle mass (kg)</label><input type="number" step="0.1" id="profMuscleMass" placeholder="36.3"></div>
+        <div class="field"><label id="profMuscleMassLabel">Skeletal muscle mass (kg)</label><input type="number" step="0.1" id="profMuscleMass" placeholder="36.3"></div>
       </div>
       <div class="row2">
         <div class="field"><label>BMR (kcal)</label><input type="number" id="profBmr" placeholder="1733"></div>
@@ -537,6 +541,17 @@ Cable Crunch
       <textarea id="importText" rows="8" style="width:100%; background:var(--bg-raised-2); border:1px solid var(--line); color:var(--ink); border-radius:10px; padding:10px 12px; font-size:13px; font-family:'Inter',sans-serif;" placeholder="Paste workout notes here..."></textarea>
       <button class="btn-primary" id="importBtn" style="margin-top:10px;">Import</button>
       <p class="muted" id="importStatus" style="margin-top:8px;"></p>
+    </div>
+
+    <div class="card">
+      <h2>Backup & restore</h2>
+      <p class="muted">Everything lives only in this browser — clearing site data or switching devices loses it. Export a backup regularly, and keep the file somewhere safe (Files app, email to yourself, cloud drive).</p>
+      <button class="btn-primary" id="exportDataBtn" style="margin-top:10px;">Export backup (.json)</button>
+      <label class="btn-ghost" style="display:block; text-align:center; margin-top:10px; cursor:pointer;">
+        Import backup (.json)
+        <input type="file" id="importDataFile" accept="application/json" style="display:none;">
+      </label>
+      <p class="muted" id="backupStatus" style="margin-top:8px;"></p>
     </div>
 
     <div class="card">
@@ -645,6 +660,11 @@ Cable Crunch
   document.getElementById('topDate').textContent = new Date().toLocaleDateString(undefined,{weekday:'short', month:'short', day:'numeric'});
 
   // ---------- setup / profile ----------
+  function updateProfileUnitLabels(){
+    const u = document.getElementById('profUnit').value;
+    document.getElementById('profWeightLabel').textContent = `Weight (${u})`;
+    document.getElementById('profMuscleMassLabel').textContent = `Skeletal muscle mass (${u})`;
+  }
   function fillProfileForm(){
     document.getElementById('profGender').value = profile.gender||'male';
     document.getElementById('profAge').value = profile.age||'';
@@ -655,7 +675,20 @@ Cable Crunch
     document.getElementById('profMuscleMass').value = profile.muscleMass||'';
     document.getElementById('profBmr').value = profile.bmr||'';
     document.getElementById('profScanDate').value = profile.scanDate||'';
+    updateProfileUnitLabels();
   }
+  document.getElementById('profUnit').addEventListener('change', ()=>{
+    // convert the currently-typed values so switching the dropdown doesn't silently relabel the same number
+    const oldUnit = profile.unit || 'kg';
+    const newUnit = document.getElementById('profUnit').value;
+    if(oldUnit !== newUnit){
+      const wInput = document.getElementById('profWeight');
+      const mInput = document.getElementById('profMuscleMass');
+      if(wInput.value) wInput.value = convertWeight(parseFloat(wInput.value), oldUnit, newUnit);
+      if(mInput.value) mInput.value = convertWeight(parseFloat(mInput.value), oldUnit, newUnit);
+    }
+    updateProfileUnitLabels();
+  });
   document.getElementById('saveProfileBtn').addEventListener('click', async ()=>{
     profile = {
       gender: document.getElementById('profGender').value,
@@ -708,7 +741,8 @@ Cable Crunch
         setsI.addEventListener('input', ()=>{ ex.sets = parseInt(setsI.value)||1; savePlan(); });
         repsI.addEventListener('input', ()=>{ ex.reps = parseInt(repsI.value)||1; savePlan(); });
         row.querySelector('.delex').addEventListener('click', ()=>{
-          day.exercises.splice(ei,1); savePlan(); renderPlanEditor(); renderToday();
+          exerciseNames[ex.id] = exerciseNames[ex.id] || ex.name || ex.id; // keep name readable in history after removal
+          day.exercises.splice(ei,1); savePlan(); saveExerciseNames(); renderPlanEditor(); renderToday(); renderExerciseManager();
         });
         exlist.appendChild(row);
       });
@@ -735,6 +769,13 @@ Cable Crunch
     return null;
   }
 
+  let exerciseMedia = {}; // exerciseId -> data URL (how-to GIF/image)
+  async function loadExerciseMedia(){ const m = lsGet('exerciseMedia'); if(m) exerciseMedia = m; }
+  async function saveExerciseMedia(){
+    try{ lsSet('exerciseMedia', exerciseMedia); return true; }
+    catch(e){ console.error('media save failed (likely storage quota)', e); return false; }
+  }
+
   function renderExerciseManager(){
     const wrap = document.getElementById('exerciseManager');
     const map = allExercises();
@@ -747,14 +788,51 @@ Cable Crunch
     };
     wrap.innerHTML = ids.map(id=>{
       const otherOptions = ids.filter(o=>o!==id).map(o=>`<option value="${escapeAttr(o)}">${escapeAttr(map[o])}</option>`).join('');
-      return `<div class="exmgr-row" data-id="${escapeAttr(id)}">
+      const media = exerciseMedia[id];
+      return `<div class="exmgr-row" data-id="${escapeAttr(id)}" style="flex-wrap:wrap;">
         <input type="text" class="exmgr-name" value="${escapeAttr(map[id])}">
         <span class="exmgr-count">${countFor(id)} sets</span>
         <button class="btn-ghost btn-small exmgr-rename">Rename</button>
         <select class="exmgr-target"><option value="">Merge into…</option>${otherOptions}</select>
         <button class="btn-ghost btn-small exmgr-merge">Merge</button>
+        <div style="width:100%; display:flex; align-items:center; gap:8px; margin-top:6px;">
+          ${media ? `<img src="${media}" style="width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid var(--line);">` : `<div style="width:40px;height:40px;border-radius:8px;background:var(--bg-raised-2);border:1px solid var(--line);"></div>`}
+          <label class="btn-ghost btn-small" style="cursor:pointer;">
+            ${media ? 'Replace GIF' : 'Add how-to GIF'}
+            <input type="file" accept="image/*" class="exmgr-media-input" style="display:none;">
+          </label>
+          ${media ? `<button class="btn-ghost btn-small exmgr-media-remove">Remove</button>` : ''}
+        </div>
       </div>`;
     }).join('');
+
+    wrap.querySelectorAll('.exmgr-media-input').forEach(input=>{
+      input.addEventListener('change', async (e)=>{
+        const file = e.target.files[0];
+        if(!file) return;
+        if(file.size > 2*1024*1024){
+          alert("That file is over 2MB — browser storage has limited space (a handful of MB total for the whole app). Try a smaller/shorter GIF or a still image instead.");
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = async ()=>{
+          const id = input.closest('.exmgr-row').dataset.id;
+          exerciseMedia[id] = reader.result;
+          const ok = await saveExerciseMedia();
+          if(!ok) alert("Couldn't save that image — you're likely out of browser storage space. Try removing an existing GIF first or use a smaller file.");
+          renderExerciseManager();
+        };
+        reader.readAsDataURL(file);
+      });
+    });
+    wrap.querySelectorAll('.exmgr-media-remove').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const id = btn.closest('.exmgr-row').dataset.id;
+        delete exerciseMedia[id];
+        await saveExerciseMedia();
+        renderExerciseManager();
+      });
+    });
 
     wrap.querySelectorAll('.exmgr-row').forEach(row=>{
       const id = row.dataset.id;
@@ -786,6 +864,75 @@ Cable Crunch
       });
     });
   }
+
+  // ---------- backup / restore ----------
+  function gatherBackup(){
+    // Deliberately excludes aiConfig (API keys) so exports are safe to share/email/store without leaking secrets.
+    return {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      profile, plan, logs, rotation, exerciseNames, settings,
+      customStandards, compareLiftsList: LIFTS, compareLiftsValues: compareLifts,
+      exerciseMedia
+    };
+  }
+  document.getElementById('exportDataBtn').addEventListener('click', ()=>{
+    const data = gatherBackup();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0,10);
+    a.href = url;
+    a.download = `plates-backup-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    document.getElementById('backupStatus').textContent = 'Backup downloaded ✓';
+  });
+
+  document.getElementById('importDataFile').addEventListener('change', (e)=>{
+    const file = e.target.files[0];
+    const status = document.getElementById('backupStatus');
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = async ()=>{
+      let data;
+      try{ data = JSON.parse(reader.result); }
+      catch(err){ status.textContent = "That file isn't valid JSON."; return; }
+      if(!data || typeof data !== 'object' || !('plan' in data) || !('logs' in data)){
+        status.textContent = "That doesn't look like a Plates backup file.";
+        return;
+      }
+      if(!confirm('This replaces all current data in the app with the contents of this backup. Continue?')) return;
+
+      if(data.profile) profile = data.profile;
+      if(data.plan) plan = data.plan;
+      if(data.logs) logs = data.logs;
+      if(data.rotation) rotation = data.rotation;
+      if(data.exerciseNames) exerciseNames = data.exerciseNames;
+      if(data.settings) settings = data.settings;
+      if(data.customStandards) customStandards = data.customStandards;
+      if(data.compareLiftsList && data.compareLiftsList.length) LIFTS = data.compareLiftsList;
+      if(data.compareLiftsValues) compareLifts = data.compareLiftsValues;
+      if(data.exerciseMedia) exerciseMedia = data.exerciseMedia;
+
+      await Promise.all([
+        saveProfile(), savePlan(), saveLogs(), saveRotation(), saveExerciseNames(),
+        saveSettings(), saveCustomStandards(), saveLiftsList(), saveCompareLifts(), saveExerciseMedia()
+      ]);
+
+      fillProfileForm();
+      document.getElementById('unitToggleKg').classList.toggle('on-unit', settings.unit==='kg');
+      document.getElementById('unitToggleLb').classList.toggle('on-unit', settings.unit==='lb');
+      activeDayId = null;
+      renderPlanEditor(); renderExerciseManager(); renderDayPicker(); renderToday();
+      renderProgressExOptions(); renderHistory(); renderCompare();
+      status.textContent = `Backup restored ✓ (from ${data.exportedAt ? data.exportedAt.slice(0,10) : 'unknown date'})`;
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  });
 
   document.getElementById('resetBtn').addEventListener('click', async ()=>{
     if(!confirm('This clears your profile, plan and logged history on this device. Continue?')) return;
@@ -861,14 +1008,19 @@ Cable Crunch
     card.innerHTML = `<h2>${escapeAttr(day.name)}</h2>`;
 
     day.exercises.forEach(ex=>{
-      if(!log.entries[ex.id]){
-        const startWeight = lastWeightFor(ex.id, ex.weight);
-        log.entries[ex.id] = Array.from({length: ex.sets}, ()=>({ weight: startWeight, unit: settings.unit, reps: ex.reps, done:false }));
+      const subId = log.substitutions && log.substitutions[ex.id];
+      const effectiveId = subId || ex.id;
+      const effectiveName = subId ? (exerciseNames[subId] || subId) : (ex.name || 'Exercise');
+      if(!log.entries[effectiveId]){
+        const startWeight = lastWeightFor(effectiveId, ex.weight);
+        log.entries[effectiveId] = Array.from({length: ex.sets}, ()=>({ weight: startWeight, unit: settings.unit, reps: ex.reps, done:false }));
       }
-      const sets = log.entries[ex.id];
+      const sets = log.entries[effectiveId];
       const block = document.createElement('div');
       block.className = 'exercise-block';
-      block.innerHTML = `<div class="ex-title">${escapeAttr(ex.name||'Exercise')}</div><div class="ex-sub">Target: ${ex.sets} × ${ex.reps}</div>`;
+      block.innerHTML = `<div class="ex-title">${escapeAttr(effectiveName)}${subId?' <span class="muted" style="font-size:11px;">(swapped)</span>':''}</div><div class="ex-sub">Target: ${ex.sets} × ${ex.reps}</div>` +
+        (exerciseMedia[effectiveId] ? `<img src="${exerciseMedia[effectiveId]}" style="max-width:120px;border-radius:10px;margin:6px 0;display:block;">` : '');
+      const setsWrap = document.createElement('div');
       sets.forEach((s, si)=>{
         if(!s.unit) s.unit = settings.unit;
         const row = document.createElement('div');
@@ -886,6 +1038,7 @@ Cable Crunch
             <button class="plus">+</button>
           </div>
           <button class="check ${s.done?'on':''}">✓</button>
+          <button class="set-remove" title="Remove this set">×</button>
         `;
         const [wStep, rStep] = row.querySelectorAll('.stepper');
         const weightStep = ()=> s.unit==='lb' ? 5 : 2.5;
@@ -901,8 +1054,59 @@ Cable Crunch
         rStep.querySelector('.plus').addEventListener('click', ()=>{ s.reps = s.reps + 1; saveLogs(); renderToday(); });
         rStep.querySelector('.minus').addEventListener('click', ()=>{ s.reps = Math.max(0, s.reps - 1); saveLogs(); renderToday(); });
         row.querySelector('.check').addEventListener('click', (e)=>{ s.done = !s.done; saveLogs(); e.target.classList.toggle('on', s.done); });
-        block.appendChild(row);
+        row.querySelector('.set-remove').addEventListener('click', ()=>{
+          sets.splice(si,1);
+          saveLogs(); renderToday();
+        });
+        setsWrap.appendChild(row);
       });
+      block.appendChild(setsWrap);
+
+      const blockActions = document.createElement('div');
+      blockActions.style.display = 'flex';
+      blockActions.style.gap = '8px';
+      blockActions.style.marginTop = '6px';
+      blockActions.style.flexWrap = 'wrap';
+
+      const addSetBtn = document.createElement('button');
+      addSetBtn.className = 'btn-ghost btn-small';
+      addSetBtn.textContent = '+ Add set';
+      addSetBtn.addEventListener('click', ()=>{
+        const last = sets[sets.length-1];
+        sets.push({ weight: last?last.weight:0, unit: last?last.unit:settings.unit, reps: last?last.reps:ex.reps, done:false });
+        saveLogs(); renderToday();
+      });
+      blockActions.appendChild(addSetBtn);
+
+      const swapBtn = document.createElement('button');
+      swapBtn.className = 'btn-ghost btn-small';
+      swapBtn.textContent = subId ? 'Swap again' : 'Swap exercise';
+      swapBtn.addEventListener('click', ()=>{
+        const altName = prompt(`Machine taken / doing something else instead of "${ex.name}"?\nEnter the alternative exercise name for today:`, '');
+        if(!altName || !altName.trim()) return;
+        const newId = slugify(altName.trim());
+        exerciseNames[newId] = altName.trim();
+        if(!log.substitutions) log.substitutions = {};
+        log.substitutions[ex.id] = newId;
+        if(!log.entries[newId]){
+          const startWeight = lastWeightFor(newId, 0);
+          log.entries[newId] = Array.from({length: ex.sets}, ()=>({ weight: startWeight, unit: settings.unit, reps: ex.reps, done:false }));
+        }
+        saveLogs(); saveExerciseNames(); renderToday();
+      });
+      blockActions.appendChild(swapBtn);
+
+      if(subId){
+        const revertBtn = document.createElement('button');
+        revertBtn.className = 'btn-ghost btn-small';
+        revertBtn.textContent = 'Revert to original';
+        revertBtn.addEventListener('click', ()=>{
+          delete log.substitutions[ex.id];
+          saveLogs(); renderToday();
+        });
+        blockActions.appendChild(revertBtn);
+      }
+      block.appendChild(blockActions);
       card.appendChild(block);
     });
 
@@ -1088,6 +1292,7 @@ Cable Crunch
             <option value="true" ${s.done!==false?'selected':''}>Done</option>
             <option value="false" ${s.done===false?'selected':''}>Not done</option>
           </select>
+          <button type="button" class="history-set-remove" title="Remove set">×</button>
         </div>`;
       });
       html += `</div>
@@ -1108,6 +1313,9 @@ Cable Crunch
   }
 
   function wireDayEditor(container){
+    container.querySelectorAll('.history-set-remove').forEach(btn=>{
+      btn.addEventListener('click', ()=>{ btn.closest('.history-set').remove(); });
+    });
     container.querySelectorAll('[data-add-set]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const [date,id] = btn.dataset.addSet.split('|');
@@ -1125,7 +1333,8 @@ Cable Crunch
           <select class="h-done" aria-label="Completed">
             <option value="true">Done</option>
             <option value="false" selected>Not done</option>
-          </select>`;
+          </select>
+          <button type="button" class="history-set-remove" title="Remove set">×</button>`;
         rowsWrap.appendChild(row);
       });
     });
@@ -1149,12 +1358,17 @@ Cable Crunch
       btn.addEventListener('click', async ()=>{
         const [date,id] = btn.dataset.saveHistory.split('|');
         const rows = [...container.querySelectorAll(`.history-set[data-date="${CSS.escape(date)}"][data-id="${CSS.escape(id)}"]`)];
-        logs[date].entries[id] = rows.map(row=>({
-          weight: Number(row.querySelector('.h-weight').value)||0,
-          unit: row.querySelector('.h-unit').value,
-          reps: Number(row.querySelector('.h-reps').value)||0,
-          done: row.querySelector('.h-done').value==='true'
-        }));
+        if(rows.length){
+          logs[date].entries[id] = rows.map(row=>({
+            weight: Number(row.querySelector('.h-weight').value)||0,
+            unit: row.querySelector('.h-unit').value,
+            reps: Number(row.querySelector('.h-reps').value)||0,
+            done: row.querySelector('.h-done').value==='true'
+          }));
+        } else {
+          delete logs[date].entries[id];
+          if(!Object.keys(logs[date].entries).length) delete logs[date];
+        }
         await saveLogs();
         renderCalendar(); renderHistoryDay(); renderHistorySearch();
         renderProgressExOptions();
@@ -1212,6 +1426,7 @@ Cable Crunch
               <option value="true" ${s.done!==false?'selected':''}>Done</option>
               <option value="false" ${s.done===false?'selected':''}>Not done</option>
             </select>
+            <button type="button" class="history-set-remove" title="Remove set">×</button>
           </div>`;
         });
         html += `<div class="history-actions">
@@ -1567,9 +1782,13 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
     }
   };
   const TIER_NAMES = ['Beginner','Novice','Intermediate','Advanced','Elite'];
-  const LIFTS = [ ['squat','Squat','squat'], ['bench','Bench press','bench-press'], ['deadlift','Deadlift','deadlift'], ['overhead','Overhead press','overhead-press'] ];
+  let LIFTS = [ ['squat','Squat','squat'], ['bench','Bench press','bench-press'], ['deadlift','Deadlift','deadlift'], ['overhead','Overhead press','overhead-press'] ];
+  async function loadLifts(){ const l = lsGet('compareLiftsList'); if(l && l.length) LIFTS = l; }
+  async function saveLiftsList(){ lsSet('compareLiftsList', LIFTS); }
 
-  let compareLifts = { squat:'', bench:'', deadlift:'', overhead:'' };
+  let compareLifts = {};
+  async function loadCompareLifts(){ const c = lsGet('compareLiftsValues'); if(c) compareLifts = c; }
+  async function saveCompareLifts(){ lsSet('compareLiftsValues', compareLifts); }
   let customStandards = {}; // { squat: {beginner,novice,intermediate,advanced,elite}, ... }
   async function loadCustomStandards(){ const c = lsGet('customStandards'); if(c) customStandards = c; }
   async function saveCustomStandards(){ lsSet('customStandards', customStandards); }
@@ -1578,12 +1797,29 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
     const wrap = document.getElementById('compareInputs');
     wrap.innerHTML = '<label style="margin-bottom:10px;">Your best set (1 rep or close to it)</label>' + LIFTS.map(([k,label,slug])=>`
       <div class="lift-input-row">
-        <span>${label}</span>
-        <input type="number" data-lift="${k}" value="${compareLifts[k]}" placeholder="${settings.unit||'kg'}">
+        <span>${escapeAttr(label)}</span>
+        <input type="number" data-lift="${escapeAttr(k)}" value="${compareLifts[k]||''}" placeholder="${settings.unit||'kg'}">
       </div>
-    `).join('');
-    wrap.querySelectorAll('input').forEach(inp=>{
-      inp.addEventListener('input', ()=>{ compareLifts[inp.dataset.lift] = inp.value; renderCompareResult(); });
+    `).join('') + `
+      <div style="display:flex; gap:8px; margin-top:12px; border-top:1px solid var(--line); padding-top:12px;">
+        <input type="text" id="newLiftName" placeholder="Add a lift (e.g. Hip thrust)" style="flex:1;">
+        <button class="btn-ghost btn-small" id="addLiftBtn">Add</button>
+      </div>`;
+    wrap.querySelectorAll('input[data-lift]').forEach(inp=>{
+      inp.addEventListener('input', async ()=>{ compareLifts[inp.dataset.lift] = inp.value; await saveCompareLifts(); renderCompareResult(); });
+    });
+    document.getElementById('addLiftBtn').addEventListener('click', async ()=>{
+      const nameInput = document.getElementById('newLiftName');
+      const name = nameInput.value.trim();
+      if(!name) return;
+      let key = slugify(name).replace(/^imp_/,'');
+      if(LIFTS.some(([k])=>k===key)) key = key + '_' + Math.random().toString(36).slice(2,5);
+      const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+      LIFTS.push([key, name, slug]);
+      await saveLiftsList();
+      renderCompareInputs();
+      renderStandardsEditor();
+      renderCompareResult();
     });
   }
 
@@ -1629,7 +1865,8 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
     if(hasFullCustom){
       return { values: TIER_NAMES.map(t=>parseFloat(custom[t.toLowerCase()])), isCustom: true };
     }
-    const ratios = STANDARDS[sex][k];
+    const ratios = STANDARDS[sex] && STANDARDS[sex][k];
+    if(!ratios) return null; // custom lift with no standards entered yet — nothing to compare against
     return { values: ratios.map(r=>Math.round(r*bw*10)/10), isCustom: false };
   }
 
@@ -1645,7 +1882,16 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
     LIFTS.forEach(([k,label,slug])=>{
       const val = parseFloat(compareLifts[k]);
       if(!val) return;
-      const { values: thresholds, isCustom } = getThresholdsFor(k, sex, bw);
+      const thresholdInfo = getThresholdsFor(k, sex, bw);
+      if(!thresholdInfo){
+        html += `<div class="card">
+          <h2>${escapeAttr(label)}</h2>
+          <div class="muted">${val}${settings.unit||'kg'}</div>
+          <div class="muted" style="margin-top:6px;">Add your standards above (✎) to see a tier and gap-to-next-level for this lift.</div>
+        </div>`;
+        return;
+      }
+      const { values: thresholds, isCustom } = thresholdInfo;
       let tierIdx = 0;
       thresholds.forEach((t,i)=>{ if(val >= t) tierIdx = i+1; });
       tierIdx = Math.min(tierIdx, TIER_NAMES.length-1);
@@ -1656,7 +1902,7 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
       const gap = Math.max(0, Math.round((nextThreshold - val)*10)/10);
       const slUrl = `https://strengthlevel.com/strength-standards/${slug}/${settings.unit==='lb'?'lb':'kg'}`;
       html += `<div class="card">
-        <h2>${label}</h2>
+        <h2>${escapeAttr(label)}</h2>
         <div class="muted">${val}${settings.unit||'kg'}${isCustom ? '' : ` · ${(val/bw).toFixed(2)}× bodyweight`}</div>
         <div class="tier-bar"><div class="tier-fill" style="width:${pct}%"></div></div>
         <div style="font-family:'Barlow Condensed',sans-serif; font-size:19px; font-weight:700; color:var(--chalk);">${TIER_NAMES[tierIdx]} ${isCustom ? '' : '<span class="muted" style="font-family:\'Inter\',sans-serif; font-size:11px; font-weight:500;">(our rough estimate)</span>'}</div>
@@ -1722,6 +1968,9 @@ Give a realistic, encouraging but honest outlook: for each lift, estimate roughl
     await loadAll();
     await loadAiConfig();
     await loadCustomStandards();
+    await loadLifts();
+    await loadCompareLifts();
+    await loadExerciseMedia();
     document.getElementById('unitToggleKg').classList.toggle('on-unit', settings.unit==='kg');
     document.getElementById('unitToggleLb').classList.toggle('on-unit', settings.unit==='lb');
     fillProfileForm();
