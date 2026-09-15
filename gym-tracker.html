@@ -292,6 +292,30 @@
   .history-set input{min-width:0;}
   .history-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
   .btn-small{padding:7px 10px;font-size:12px;}
+
+  .cal-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .cal-head .month{ font-family:'Barlow Condensed',sans-serif; font-size:19px; font-weight:700; }
+  .cal-nav{ display:flex; gap:6px; }
+  .cal-grid{ display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); grid-auto-rows:42px; gap:4px; margin-bottom:6px; }
+  .cal-dow{ text-align:center; font-size:10.5px; color:var(--ink-faint); font-weight:600; padding-bottom:2px; min-width:0; }
+  .cal-day{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    border-radius:9px; font-size:13px; color:var(--ink-dim); position:relative; background:var(--bg-raised-2);
+    border:1px solid transparent; min-width:0; overflow:hidden;
+  }
+  .cal-day.empty{ background:transparent; }
+  .cal-day.has-log{ color:var(--ink); font-weight:700; }
+  .cal-day.has-log::after{ content:''; width:5px; height:5px; border-radius:50%; background:var(--chalk); position:absolute; bottom:5px; }
+  .cal-day.today{ border-color:var(--chalk-dim); }
+  .cal-day.selected{ background:var(--chalk); color:#1A1508; }
+  .cal-day.selected::after{ background:#1A1508; }
+  .exmgr-row{ display:flex; gap:8px; align-items:center; margin-bottom:9px; flex-wrap:wrap; }
+  .exmgr-row input[type=text]{ flex:1; min-width:120px; font-size:13.5px; padding:8px 9px; }
+  .exmgr-row select{ flex:1; min-width:110px; font-size:12.5px; padding:8px 9px; }
+  .exmgr-count{ font-size:11px; color:var(--ink-faint); white-space:nowrap; }
+  .plan-preview{ background:var(--bg-raised-2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
+  .plan-preview h4{ margin:0 0 6px; font-family:'Barlow Condensed',sans-serif; font-size:16px; }
+  .plan-preview .pe{ font-size:12.5px; color:var(--ink-dim); padding:2px 0; }
 </style>
 </head>
 <body>
@@ -311,13 +335,24 @@
   <!-- HISTORY -->
   <div class="view" id="view-history">
     <div class="card">
-      <h2>Past Workouts</h2>
-      <p class="muted">View and edit saved workout sessions. Changes are stored in this browser.</p>
+      <div class="cal-head">
+        <button class="btn-icon" id="calPrevBtn">‹</button>
+        <div class="month" id="calMonthLabel"></div>
+        <button class="btn-icon" id="calNextBtn">›</button>
+      </div>
+      <div class="cal-grid" id="calDowRow"></div>
+      <div class="cal-grid" id="calGrid"></div>
+    </div>
+    <div class="card">
+      <h2 id="historyDayTitle">Today</h2>
+      <div id="historyContent"></div>
+    </div>
+    <div class="card">
+      <h2>Search all history</h2>
       <div class="history-toolbar">
         <input id="historySearch" placeholder="Search exercise or date" style="flex:1;min-width:180px;">
-        <button class="btn-ghost" id="historyRefreshBtn">Refresh</button>
       </div>
-      <div id="historyContent"></div>
+      <div id="historySearchResults"></div>
     </div>
   </div>
 
@@ -337,17 +372,70 @@
   <!-- COACH -->
   <div class="view" id="view-coach">
     <div class="card">
-      <h2>AI Coach</h2>
-      <p class="muted">Use Gemini 3.6 Flash to review your recent workouts and suggest safe weight, rep, and recovery adjustments. Your API key is used only in this browser.</p>
-      <div class="field" style="margin-top:10px;"><label for="geminiKey">Gemini API key</label><input id="geminiKey" type="password" placeholder="Paste your Gemini API key"></div>
-      <button class="btn-primary" id="askGeminiBtn" style="margin-top:10px;">Ask Gemini Coach</button>
-      <button class="btn-secondary" id="copySummaryBtn" style="margin-top:8px;">Copy training summary</button>
-      <p class="muted" id="copyStatus" style="margin-top:8px; min-height:16px;"></p>
-      <div id="geminiResult" class="muted" style="white-space:pre-wrap; margin-top:12px;"></div>
+      <h2>AI Provider</h2>
+      <p class="muted">Your API key is stored only on this device and sent directly from your phone to the provider — it never passes through anyone else's server. Don't share this saved app link with others while a key is set.</p>
+      <div class="field" style="margin-top:10px;">
+        <label>Provider</label>
+        <select id="aiProvider">
+          <option value="claude">Claude (Anthropic)</option>
+          <option value="openai">ChatGPT (OpenAI)</option>
+          <option value="gemini">Gemini (Google) — free tier</option>
+        </select>
+      </div>
+      <div class="field" id="claudeKeyField">
+        <label>Anthropic API key</label>
+        <div style="display:flex; gap:8px;">
+          <input type="password" id="anthropicKey" placeholder="sk-ant-..." autocomplete="off" style="flex:1;">
+          <button class="btn-icon" id="toggleAnthropicKey" type="button" title="Show/hide">👁</button>
+        </div>
+      </div>
+      <div class="field" id="openaiKeyField" style="display:none;">
+        <label>OpenAI API key</label>
+        <div style="display:flex; gap:8px;">
+          <input type="password" id="openaiKey" placeholder="sk-..." autocomplete="off" style="flex:1;">
+          <button class="btn-icon" id="toggleOpenaiKey" type="button" title="Show/hide">👁</button>
+        </div>
+      </div>
+      <div class="field" id="geminiKeyField" style="display:none;">
+        <label>Gemini API key</label>
+        <div style="display:flex; gap:8px;">
+          <input type="password" id="geminiKey" placeholder="AIza..." autocomplete="off" style="flex:1;">
+          <button class="btn-icon" id="toggleGeminiKey" type="button" title="Show/hide">👁</button>
+        </div>
+        <p class="muted" style="margin-top:6px;">Free, no card required — get a key at <span style="color:var(--steel);">aistudio.google.com</span> (Google AI Studio → Get API key).</p>
+      </div>
+      <button class="btn-primary" id="saveAiConfigBtn">Save AI settings</button>
+      <button class="btn-ghost btn-danger" id="clearAiKeyBtn" style="margin-top:8px; width:100%;">Remove saved key for this provider</button>
+      <p class="muted" id="aiConfigStatus" style="margin-top:8px;"></p>
     </div>
+
     <div class="card">
-      <h2>Want a live coach instead?</h2>
-      <p class="muted">For production use, put the API call behind a server/serverless function so your key is not exposed in public HTML.</p>
+      <h2>Auto-generate my plan</h2>
+      <p class="muted">Builds a full workout split from your profile, InBody stats, PRs, and logged history.</p>
+      <div class="field" style="margin-top:10px;">
+        <label>Days per week</label>
+        <input type="number" id="planDaysPerWeek" value="4" min="1" max="7">
+      </div>
+      <div class="field">
+        <label>Goal</label>
+        <select id="planGoal">
+          <option value="general strength and hypertrophy">General strength & size</option>
+          <option value="pure strength">Pure strength</option>
+          <option value="hypertrophy">Hypertrophy / size</option>
+          <option value="fat loss while preserving muscle">Fat loss, preserve muscle</option>
+          <option value="general fitness and conditioning">General fitness</option>
+        </select>
+      </div>
+      <button class="btn-primary" id="generatePlanBtn">Generate plan</button>
+      <p class="muted" id="generateStatus" style="margin-top:8px;"></p>
+    </div>
+    <div id="planPreviewWrap"></div>
+
+    <div class="card">
+      <h2>No API key? Copy a summary instead</h2>
+      <p class="muted">Copies your plan and recent sessions so you can paste it into any AI chat manually.</p>
+      <button class="btn-primary" id="copySummaryBtn" style="margin-top:10px;">Copy training summary</button>
+      <p class="muted" id="copyStatus" style="margin-top:8px; min-height:16px;"></p>
     </div>
   </div>
 
@@ -378,6 +466,15 @@
       <div class="field"><label>Weight unit for logging</label>
         <select id="profUnit"><option value="kg">kg</option><option value="lb">lb</option></select>
       </div>
+      <p class="muted" style="margin:14px 0 8px;">From a body composition scan (InBody, DEXA, etc) — optional, but helps the AI coach tailor your plan.</p>
+      <div class="row2">
+        <div class="field"><label>Body fat %</label><input type="number" step="0.1" id="profBodyFat" placeholder="21.2"></div>
+        <div class="field"><label>Skeletal muscle mass (kg)</label><input type="number" step="0.1" id="profMuscleMass" placeholder="36.3"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>BMR (kcal)</label><input type="number" id="profBmr" placeholder="1733"></div>
+        <div class="field"><label>Scan date</label><input type="text" id="profScanDate" placeholder="2025-08-16"></div>
+      </div>
       <button class="btn-primary" id="saveProfileBtn">Save profile</button>
     </div>
 
@@ -385,6 +482,12 @@
       <h2>Workout plan <button class="btn-icon" id="addDayBtn">+</button></h2>
       <div id="planEditor"></div>
       <p class="muted" id="planEmptyMsg" style="display:none;">Add a day to start building your split.</p>
+    </div>
+
+    <div class="card">
+      <h2>Manage exercises</h2>
+      <p class="muted">Fix typo'd names, or merge duplicates (e.g. "Chest Press" and "Chestpress") so their history combines into one.</p>
+      <div id="exerciseManager"></div>
     </div>
 
     <div class="card">
@@ -425,7 +528,7 @@ Cable Crunch
   "use strict";
 
   // ---------- state ----------
-  let profile = { gender:'male', age:'', weight:'', height:'', unit:'kg' };
+  let profile = { gender:'male', age:'28', weight:'80.1', height:'179', unit:'kg', bodyFat:'21.2', muscleMass:'36.3', bmr:'1733', scanDate:'2025-08-16' };
   let plan = { days: [] }; // {id,name,exercises:[{id,name,sets,reps,weight}]}
   let logs = {}; // dateStr -> { dayId, entries: { exerciseId: [{weight,reps,done}] } }
   let rotation = { nextDayIndex: 0 };
@@ -490,6 +593,10 @@ Cable Crunch
     document.getElementById('profWeight').value = profile.weight||'';
     document.getElementById('profHeight').value = profile.height||'';
     document.getElementById('profUnit').value = profile.unit||'kg';
+    document.getElementById('profBodyFat').value = profile.bodyFat||'';
+    document.getElementById('profMuscleMass').value = profile.muscleMass||'';
+    document.getElementById('profBmr').value = profile.bmr||'';
+    document.getElementById('profScanDate').value = profile.scanDate||'';
   }
   document.getElementById('saveProfileBtn').addEventListener('click', async ()=>{
     profile = {
@@ -498,6 +605,10 @@ Cable Crunch
       weight: document.getElementById('profWeight').value,
       height: document.getElementById('profHeight').value,
       unit: document.getElementById('profUnit').value,
+      bodyFat: document.getElementById('profBodyFat').value,
+      muscleMass: document.getElementById('profMuscleMass').value,
+      bmr: document.getElementById('profBmr').value,
+      scanDate: document.getElementById('profScanDate').value,
     };
     await saveProfile();
     renderToday(); renderCompare();
@@ -558,13 +669,77 @@ Cable Crunch
     plan.days.push({ id: uid(), name: 'Day '+(plan.days.length+1), exercises: [] });
     savePlan(); renderPlanEditor(); renderDayPicker(); renderToday(); renderProgressExOptions();
   });
+  function findPlanExercise(id){
+    for(const day of plan.days){
+      const ex = day.exercises.find(e=>e.id===id);
+      if(ex) return { day, ex };
+    }
+    return null;
+  }
+
+  function renderExerciseManager(){
+    const wrap = document.getElementById('exerciseManager');
+    const map = allExercises();
+    const ids = Object.keys(map);
+    if(!ids.length){ wrap.innerHTML = '<p class="muted">No exercises yet — add some in your plan, or import history.</p>'; return; }
+    const countFor = (id)=>{
+      let c = 0;
+      Object.values(logs).forEach(l=>{ if(l.entries && l.entries[id]) c += l.entries[id].length; });
+      return c;
+    };
+    wrap.innerHTML = ids.map(id=>{
+      const otherOptions = ids.filter(o=>o!==id).map(o=>`<option value="${escapeAttr(o)}">${escapeAttr(map[o])}</option>`).join('');
+      return `<div class="exmgr-row" data-id="${escapeAttr(id)}">
+        <input type="text" class="exmgr-name" value="${escapeAttr(map[id])}">
+        <span class="exmgr-count">${countFor(id)} sets</span>
+        <button class="btn-ghost btn-small exmgr-rename">Rename</button>
+        <select class="exmgr-target"><option value="">Merge into…</option>${otherOptions}</select>
+        <button class="btn-ghost btn-small exmgr-merge">Merge</button>
+      </div>`;
+    }).join('');
+
+    wrap.querySelectorAll('.exmgr-row').forEach(row=>{
+      const id = row.dataset.id;
+      row.querySelector('.exmgr-rename').addEventListener('click', async ()=>{
+        const newName = row.querySelector('.exmgr-name').value.trim();
+        if(!newName) return;
+        const found = findPlanExercise(id);
+        if(found){ found.ex.name = newName; await savePlan(); }
+        else { exerciseNames[id] = newName; await saveExerciseNames(); }
+        renderExerciseManager(); renderPlanEditor(); renderToday(); renderProgressExOptions(); renderHistory();
+      });
+      row.querySelector('.exmgr-merge').addEventListener('click', async ()=>{
+        const targetId = row.querySelector('.exmgr-target').value;
+        if(!targetId) return;
+        const targetName = allExercises()[targetId] || targetId;
+        if(!confirm(`Move all sets from "${map[id]}" into "${targetName}"? This can't be undone.`)) return;
+        Object.keys(logs).forEach(date=>{
+          const entries = logs[date].entries || {};
+          if(entries[id]){
+            entries[targetId] = (entries[targetId]||[]).concat(entries[id]);
+            delete entries[id];
+          }
+        });
+        delete exerciseNames[id];
+        const found = findPlanExercise(id);
+        if(found){ found.day.exercises = found.day.exercises.filter(e=>e.id!==id); await savePlan(); }
+        await saveLogs(); await saveExerciseNames();
+        renderExerciseManager(); renderPlanEditor(); renderToday(); renderProgressExOptions(); renderHistory();
+      });
+    });
+  }
+
   document.getElementById('resetBtn').addEventListener('click', async ()=>{
     if(!confirm('This clears your profile, plan and logged history on this device. Continue?')) return;
     profile = { gender:'male', age:'', weight:'', height:'', unit:'kg' };
     plan = { days: [] };
     logs = {};
     rotation = { nextDayIndex: 0 };
-    await Promise.all([saveProfile(), savePlan(), saveLogs(), saveRotation()]);
+    exerciseNames = {};
+    aiConfig = { provider: 'claude', anthropicKey: '', openaiKey: '', geminiKey: '' };
+    await Promise.all([saveProfile(), savePlan(), saveLogs(), saveRotation(), saveExerciseNames(), saveAiConfig()]);
+    fillAiConfigForm();
+    renderExerciseManager();
     fillProfileForm(); renderPlanEditor(); renderDayPicker(); renderToday(); renderProgressExOptions();
   });
 
@@ -775,6 +950,8 @@ Cable Crunch
     status.textContent = `Imported ${setCount} sets across ${exCount} exercise entries, ${sessions.length} session(s).`;
     document.getElementById('importText').value = '';
     renderProgressExOptions();
+    renderExerciseManager();
+    renderHistory();
   });
   function renderProgressExOptions(){
     const sel = document.getElementById('progressExSelect');
@@ -786,30 +963,128 @@ Cable Crunch
   }
   document.getElementById('progressExSelect').addEventListener('change', renderProgress);
 
-  // ---------- past workout history / editor ----------
+  // ---------- past workout history / editor (calendar-based) ----------
   function esc(value){
     return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
-  function renderHistory(){
+
+  let calMonth = new Date(todayStr+'T00:00:00'); calMonth.setDate(1);
+  let selectedHistoryDate = todayStr;
+
+  function dateKey(y,m,d){ return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+
+  function renderCalendar(){
+    const y = calMonth.getFullYear(), m = calMonth.getMonth();
+    document.getElementById('calMonthLabel').textContent = calMonth.toLocaleDateString(undefined,{month:'long', year:'numeric'});
+    const dowRow = document.getElementById('calDowRow');
+    dowRow.innerHTML = ['S','M','T','W','T','F','S'].map(d=>`<div class="cal-dow">${d}</div>`).join('');
+    const grid = document.getElementById('calGrid');
+    const firstDow = new Date(y,m,1).getDay();
+    const daysInMonth = new Date(y,m+1,0).getDate();
+    let html = '';
+    for(let i=0;i<firstDow;i++) html += `<div class="cal-day empty"></div>`;
+    for(let d=1; d<=daysInMonth; d++){
+      const key = dateKey(y,m,d);
+      const hasLog = logs[key] && Object.keys(logs[key].entries||{}).length;
+      const cls = ['cal-day'];
+      if(hasLog) cls.push('has-log');
+      if(key===todayStr) cls.push('today');
+      if(key===selectedHistoryDate) cls.push('selected');
+      html += `<div class="${cls.join(' ')}" data-date="${key}">${d}</div>`;
+    }
+    grid.innerHTML = html;
+    grid.querySelectorAll('.cal-day[data-date]').forEach(el=>{
+      el.addEventListener('click', ()=>{ selectedHistoryDate = el.dataset.date; renderCalendar(); renderHistoryDay(); });
+    });
+  }
+  document.getElementById('calPrevBtn').addEventListener('click', ()=>{ calMonth.setMonth(calMonth.getMonth()-1); renderCalendar(); });
+  document.getElementById('calNextBtn').addEventListener('click', ()=>{ calMonth.setMonth(calMonth.getMonth()+1); renderCalendar(); });
+
+  function dayEditorHtml(date){
+    const day = logs[date];
+    const entries = day && day.entries ? day.entries : {};
+    const ids = Object.keys(entries);
+    if(!ids.length) return `<p class="muted">No sets logged this day.</p>`;
+    let html = '';
+    ids.forEach(id=>{
+      const name = (allExercises())[id] || id;
+      const sets = entries[id] || [];
+      html += `<div style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px;">
+        <strong>${esc(name)}</strong>
+        <div>`;
+      sets.forEach((s,i)=>{
+        html += `<div class="history-set" data-date="${esc(date)}" data-id="${esc(id)}" data-index="${i}">
+          <input type="number" step="0.1" class="h-weight" value="${esc(s.weight)}" aria-label="Weight">
+          <input type="number" class="h-reps" value="${esc(s.reps)}" aria-label="Reps">
+          <select class="h-done" aria-label="Completed">
+            <option value="true" ${s.done!==false?'selected':''}>Done</option>
+            <option value="false" ${s.done===false?'selected':''}>Not done</option>
+          </select>
+        </div>`;
+      });
+      html += `<div class="history-actions">
+        <button class="btn-primary btn-small" data-save-history="${esc(date)}|${esc(id)}">Save</button>
+        <button class="btn-ghost btn-small" data-delete-history="${esc(date)}|${esc(id)}">Delete exercise</button>
+      </div></div>`;
+    });
+    return html;
+  }
+
+  function wireDayEditor(container){
+    container.querySelectorAll('[data-save-history]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const [date,id] = btn.dataset.saveHistory.split('|');
+        const rows = [...container.querySelectorAll(`.history-set[data-date="${CSS.escape(date)}"][data-id="${CSS.escape(id)}"]`)];
+        logs[date].entries[id] = rows.map(row=>({
+          weight: Number(row.querySelector('.h-weight').value)||0,
+          reps: Number(row.querySelector('.h-reps').value)||0,
+          done: row.querySelector('.h-done').value==='true'
+        }));
+        await saveLogs();
+        renderCalendar(); renderHistoryDay(); renderHistorySearch();
+        renderProgressExOptions();
+      });
+    });
+    container.querySelectorAll('[data-delete-history]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const [date,id] = btn.dataset.deleteHistory.split('|');
+        if(!confirm(`Delete ${(allExercises())[id] || id} from ${date}?`)) return;
+        delete logs[date].entries[id];
+        if(!Object.keys(logs[date].entries).length) delete logs[date];
+        await saveLogs();
+        renderCalendar(); renderHistoryDay(); renderHistorySearch();
+        renderProgressExOptions();
+      });
+    });
+  }
+
+  function renderHistoryDay(){
+    document.getElementById('historyDayTitle').textContent = selectedHistoryDate===todayStr ? 'Today' : selectedHistoryDate;
     const wrap = document.getElementById('historyContent');
+    wrap.innerHTML = dayEditorHtml(selectedHistoryDate);
+    wireDayEditor(wrap);
+  }
+
+  function renderHistorySearch(){
+    const wrap = document.getElementById('historySearchResults');
     const search = (document.getElementById('historySearch').value || '').toLowerCase().trim();
+    if(!search){ wrap.innerHTML = ''; return; }
+    const exMap = allExercises();
     const dates = Object.keys(logs).sort().reverse();
     let html = '';
     dates.forEach(date=>{
-      const day = logs[date];
-      const entries = day && day.entries ? day.entries : {};
-      const exercises = Object.keys(entries).filter(id=>{
-        const name = exerciseNames[id] || id;
-        return !search || date.includes(search) || name.toLowerCase().includes(search);
+      const entries = logs[date] && logs[date].entries ? logs[date].entries : {};
+      const ids = Object.keys(entries).filter(id=>{
+        const name = exMap[id] || id;
+        return date.includes(search) || name.toLowerCase().includes(search);
       });
-      if(!exercises.length) return;
-      html += `<div class="history-item"><h3>${esc(date)}</h3><div class="history-meta">${exercises.length} exercise(s)</div>`;
-      exercises.forEach(id=>{
-        const name = exerciseNames[id] || id;
+      if(!ids.length) return;
+      html += `<div class="history-item"><h3>${esc(date)}</h3>`;
+      ids.forEach(id=>{
+        const name = exMap[id] || id;
         const sets = entries[id] || [];
         html += `<div style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px;">
-          <strong>${esc(name)}</strong>
-          <div id="history-${esc(date)}-${esc(id)}">`;
+          <strong>${esc(name)}</strong><div>`;
         sets.forEach((s,i)=>{
           html += `<div class="history-set" data-date="${esc(date)}" data-id="${esc(id)}" data-index="${i}">
             <input type="number" step="0.1" class="h-weight" value="${esc(s.weight)}" aria-label="Weight">
@@ -821,42 +1096,22 @@ Cable Crunch
           </div>`;
         });
         html += `<div class="history-actions">
-          <button class="btn-primary btn-small" data-save-history="${esc(date)}|${esc(id)}">Save exercise</button>
+          <button class="btn-primary btn-small" data-save-history="${esc(date)}|${esc(id)}">Save</button>
           <button class="btn-ghost btn-small" data-delete-history="${esc(date)}|${esc(id)}">Delete exercise</button>
-        </div></div></div>`;
+        </div></div>`;
       });
       html += `</div>`;
     });
-    wrap.innerHTML = html || '<p class="muted">No matching past workouts found.</p>';
-
-    wrap.querySelectorAll('[data-save-history]').forEach(btn=>{
-      btn.addEventListener('click', async ()=>{
-        const [date,id] = btn.dataset.saveHistory.split('|');
-        const rows = [...wrap.querySelectorAll(`.history-set[data-date="${CSS.escape(date)}"][data-id="${CSS.escape(id)}"]`)];
-        logs[date].entries[id] = rows.map(row=>({
-          weight: Number(row.querySelector('.h-weight').value)||0,
-          reps: Number(row.querySelector('.h-reps').value)||0,
-          done: row.querySelector('.h-done').value==='true'
-        }));
-        await saveLogs();
-        renderHistory();
-        renderProgressExOptions();
-      });
-    });
-    wrap.querySelectorAll('[data-delete-history]').forEach(btn=>{
-      btn.addEventListener('click', async ()=>{
-        const [date,id] = btn.dataset.deleteHistory.split('|');
-        if(!confirm(`Delete ${exerciseNames[id] || id} from ${date}?`)) return;
-        delete logs[date].entries[id];
-        if(!Object.keys(logs[date].entries).length) delete logs[date];
-        await saveLogs();
-        renderHistory();
-        renderProgressExOptions();
-      });
-    });
+    wrap.innerHTML = html || '<p class="muted">No matches.</p>';
+    wireDayEditor(wrap);
   }
-  document.getElementById('historySearch').addEventListener('input', renderHistory);
-  document.getElementById('historyRefreshBtn').addEventListener('click', renderHistory);
+  document.getElementById('historySearch').addEventListener('input', renderHistorySearch);
+
+  function renderHistory(){
+    renderCalendar();
+    renderHistoryDay();
+    renderHistorySearch();
+  }
 
   function historyFor(exId){
     const dates = Object.keys(logs).sort();
@@ -915,49 +1170,113 @@ Cable Crunch
     `;
   }
 
-  // ---------- Gemini 3.6 Flash coach
-  document.getElementById('askGeminiBtn').addEventListener('click', async ()=>{
-    const key = document.getElementById('geminiKey').value.trim();
-    const result = document.getElementById('geminiResult');
-    if(!key){ result.textContent = 'Enter your Gemini API key first.'; return; }
-    result.textContent = 'Gemini is reviewing your training data…';
-    try{
-      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=' + encodeURIComponent(key), {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({contents:[{parts:[{text:buildCoachSummary() + '\n\nGive practical next-session recommendations. Be concise. Include warm-up advice, suggested weights/reps, progression rules, and recovery notes. Do not diagnose medical conditions.'}]}]})
-      });
-      const data = await response.json();
-      if(!response.ok) throw new Error(data?.error?.message || 'Gemini request failed.');
-      result.textContent = data?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('') || 'No response returned.';
-    }catch(err){ result.textContent = 'Gemini error: ' + err.message; }
+  // ---------- AI provider config ----------
+  let aiConfig = { provider: 'claude', anthropicKey: '', openaiKey: '', geminiKey: '' };
+  async function loadAiConfig(){ const c = lsGet('aiConfig'); if(c) aiConfig = c; }
+  async function saveAiConfig(){ lsSet('aiConfig', aiConfig); }
+
+  function fillAiConfigForm(){
+    document.getElementById('aiProvider').value = aiConfig.provider || 'claude';
+    document.getElementById('anthropicKey').value = aiConfig.anthropicKey || '';
+    document.getElementById('openaiKey').value = aiConfig.openaiKey || '';
+    document.getElementById('geminiKey').value = aiConfig.geminiKey || '';
+    toggleKeyFields();
+    const status = document.getElementById('aiConfigStatus');
+    const activeKey = { claude: aiConfig.anthropicKey, openai: aiConfig.openaiKey, gemini: aiConfig.geminiKey }[aiConfig.provider];
+    status.textContent = activeKey ? `Key on file: ${maskKey(activeKey)}` : '';
+  }
+  function toggleKeyFields(){
+    const p = document.getElementById('aiProvider').value;
+    document.getElementById('claudeKeyField').style.display = p==='claude' ? '' : 'none';
+    document.getElementById('openaiKeyField').style.display = p==='openai' ? '' : 'none';
+    document.getElementById('geminiKeyField').style.display = p==='gemini' ? '' : 'none';
+  }
+  document.getElementById('aiProvider').addEventListener('change', toggleKeyFields);
+
+  function maskKey(key){
+    if(!key || key.length < 8) return key ? '••••' : '';
+    return key.slice(0,6) + '••••' + key.slice(-4);
+  }
+  function wireKeyToggle(btnId, inputId){
+    const btn = document.getElementById(btnId), input = document.getElementById(inputId);
+    btn.addEventListener('click', ()=>{
+      const showing = input.type === 'text';
+      input.type = showing ? 'password' : 'text';
+      btn.textContent = showing ? '👁' : '🙈';
+    });
+  }
+  wireKeyToggle('toggleAnthropicKey','anthropicKey');
+  wireKeyToggle('toggleOpenaiKey','openaiKey');
+  wireKeyToggle('toggleGeminiKey','geminiKey');
+
+  document.getElementById('saveAiConfigBtn').addEventListener('click', async ()=>{
+    aiConfig = {
+      provider: document.getElementById('aiProvider').value,
+      anthropicKey: document.getElementById('anthropicKey').value.trim(),
+      openaiKey: document.getElementById('openaiKey').value.trim(),
+      geminiKey: document.getElementById('geminiKey').value.trim(),
+    };
+    await saveAiConfig();
+    // re-mask the fields after saving so the raw key isn't left sitting in view
+    ['anthropicKey','openaiKey','geminiKey'].forEach(id=> document.getElementById(id).type = 'password');
+    ['toggleAnthropicKey','toggleOpenaiKey','toggleGeminiKey'].forEach(id=> document.getElementById(id).textContent = '👁');
+    const status = document.getElementById('aiConfigStatus');
+    const activeKey = { claude: aiConfig.anthropicKey, openai: aiConfig.openaiKey, gemini: aiConfig.geminiKey }[aiConfig.provider];
+    status.textContent = activeKey ? `Saved — key on file: ${maskKey(activeKey)}` : 'Saved (no key set for this provider).';
   });
 
-  // ---------- coach summary (copy to clipboard, paste into a Claude chat) ----------
-  function buildCoachSummary(){
+  document.getElementById('clearAiKeyBtn').addEventListener('click', async ()=>{
+    const status = document.getElementById('aiConfigStatus');
+    if(aiConfig.provider==='claude'){ aiConfig.anthropicKey=''; document.getElementById('anthropicKey').value=''; }
+    else if(aiConfig.provider==='openai'){ aiConfig.openaiKey=''; document.getElementById('openaiKey').value=''; }
+    else { aiConfig.geminiKey=''; document.getElementById('geminiKey').value=''; }
+    await saveAiConfig();
+    status.textContent = 'Key removed for this provider.';
+  });
+
+  function bestSetFor(exId){
+    const hist = historyFor(exId);
+    if(!hist.length) return null;
+    return hist.reduce((a,b)=> b.top>a.top ? b : a);
+  }
+
+  function buildFullContext(goalText, daysPerWeek){
     const exMap = allExercises();
-    const summary = Object.entries(exMap).map(([id,name])=>{
-      const hist = historyFor(id).slice(-5);
+    const prLines = Object.entries(exMap).map(([id,name])=>{
+      const best = bestSetFor(id);
+      if(!best) return null;
+      return `${name}: best set ${best.top}${profile.unit||'kg'} (as of ${best.date})`;
+    }).filter(Boolean).join('\n');
+    const recentLines = Object.entries(exMap).map(([id,name])=>{
+      const hist = historyFor(id).slice(-4);
       if(!hist.length) return null;
       return `${name}: ` + hist.map(h=>`${h.date} top set ${h.top}${profile.unit||'kg'}, ${h.totalReps} total reps`).join('; ');
     }).filter(Boolean).join('\n');
     const planText = plan.days.map(d=> d.name + ': ' + d.exercises.map(e=>`${e.name} ${e.sets}x${e.reps}`).join(', ')).join('\n');
-    return `Here's my training data — can you suggest weight/rep adjustments for my next session of each exercise, plus any coaching notes?
 
-Profile: sex=${profile.gender||'unknown'}, age=${profile.age||'unknown'}, bodyweight=${profile.weight||'unknown'}${profile.unit||'kg'}, height=${profile.height||'unknown'}cm.
+    return `Athlete profile:
+- Sex: ${profile.gender||'unknown'}, Age: ${profile.age||'unknown'}
+- Bodyweight: ${profile.weight||'unknown'} ${profile.unit||'kg'}, Height: ${profile.height||'unknown'} cm
+- Body fat: ${profile.bodyFat||'unknown'}%, Skeletal muscle mass: ${profile.muscleMass||'unknown'} kg, BMR: ${profile.bmr||'unknown'} kcal (from a body scan dated ${profile.scanDate||'unknown'})
+${goalText ? `- Goal: ${goalText}` : ''}
+${daysPerWeek ? `- Wants to train ${daysPerWeek} days per week` : ''}
 
-Current plan:
-${planText || '(no plan set)'}
+Current workout plan:
+${planText || '(no plan set yet)'}
 
-Recent logged sessions (most recent last, per exercise):
-${summary || '(no sessions logged yet)'}`;
+All-time best logged set per exercise:
+${prLines || '(no history logged yet)'}
+
+Recent session history (last few sessions per exercise):
+${recentLines || '(no sessions logged yet)'}`;
   }
 
   document.getElementById('copySummaryBtn').addEventListener('click', async ()=>{
     const status = document.getElementById('copyStatus');
-    const text = buildCoachSummary();
+    const text = `Here's my training data — can you suggest weight/rep adjustments for my next session of each exercise, plus any coaching notes?\n\n` + buildFullContext('', '');
     try{
       await navigator.clipboard.writeText(text);
-      status.textContent = 'Copied — paste it into Gemini or another AI chat.';
+      status.textContent = 'Copied — paste it into any AI chat.';
     }catch(e){
       status.textContent = "Couldn't copy automatically — select and copy the text below.";
       const pre = document.createElement('pre');
@@ -968,6 +1287,116 @@ ${summary || '(no sessions logged yet)'}`;
       pre.textContent = text;
       status.after(pre);
     }
+  });
+
+  // ---------- auto-generate plan ----------
+  const PLAN_JSON_INSTRUCTIONS = `Design a complete new workout split for this athlete based on all the data below. Balance muscle groups sensibly across the week, pick sensible starting weights per exercise based on their PRs and recent sets (usually a bit below their best working set, not their 1-rep max), and vary rep ranges appropriately for the stated goal.
+
+Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this shape:
+{"days": [{"name": "Day name (e.g. Push, Pull, Legs, Upper, Full Body A)", "exercises": [{"name": "Exercise name", "sets": 3, "reps": 8, "startingWeight": 40}]}]}`;
+
+  async function callClaude(apiKey, prompt){
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 2000,
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+    const data = await response.json();
+    if(data.error) throw new Error(data.error.message || 'Anthropic API error');
+    return (data.content||[]).map(c=>c.text||'').join('\n').trim();
+  }
+
+  async function callOpenAI(apiKey, prompt){
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + apiKey
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        max_tokens: 2000,
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+    const data = await response.json();
+    if(data.error) throw new Error(data.error.message || 'OpenAI API error');
+    return (data.choices||[]).map(c=>c.message && c.message.content || '').join('\n').trim();
+  }
+
+  async function callGemini(apiKey, prompt){
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }]
+      })
+    });
+    const data = await response.json();
+    if(data.error) throw new Error(data.error.message || 'Gemini API error');
+    const cand = (data.candidates||[])[0];
+    const parts = cand && cand.content && cand.content.parts || [];
+    return parts.map(p=>p.text||'').join('\n').trim();
+  }
+
+  let pendingGeneratedPlan = null;
+
+  document.getElementById('generatePlanBtn').addEventListener('click', async ()=>{
+    const btn = document.getElementById('generatePlanBtn');
+    const status = document.getElementById('generateStatus');
+    const previewWrap = document.getElementById('planPreviewWrap');
+    const provider = aiConfig.provider;
+    const key = { claude: aiConfig.anthropicKey, openai: aiConfig.openaiKey, gemini: aiConfig.geminiKey }[provider];
+    const providerLabel = { claude:'Anthropic', openai:'OpenAI', gemini:'Gemini' }[provider];
+    if(!key){ status.textContent = `Add your ${providerLabel} API key above first, then save.`; return; }
+    const daysPerWeek = document.getElementById('planDaysPerWeek').value || '4';
+    const goal = document.getElementById('planGoal').value;
+    btn.disabled = true;
+    status.innerHTML = `<span class="spinner"></span>Building your plan…`;
+    previewWrap.innerHTML = '';
+    try{
+      const prompt = buildFullContext(goal, daysPerWeek) + '\n\n' + PLAN_JSON_INSTRUCTIONS;
+      const callers = { claude: callClaude, openai: callOpenAI, gemini: callGemini };
+      const raw = await callers[provider](key, prompt);
+      const clean = raw.replace(/```json|```/g,'').trim();
+      const parsed = JSON.parse(clean);
+      if(!parsed.days || !parsed.days.length) throw new Error('No plan returned');
+      pendingGeneratedPlan = parsed;
+      previewWrap.innerHTML = `<div class="card"><h2>Proposed plan</h2>` +
+        parsed.days.map(d=>`<div class="plan-preview"><h4>${escapeAttr(d.name)}</h4>` +
+          d.exercises.map(e=>`<div class="pe">${escapeAttr(e.name)} — ${e.sets}×${e.reps}${e.startingWeight?` @ ${e.startingWeight}${profile.unit||'kg'}`:''}</div>`).join('') +
+        `</div>`).join('') +
+        `<button class="btn-primary" id="applyPlanBtn" style="margin-top:6px;">Apply this plan</button>
+         <button class="btn-ghost" id="discardPlanBtn" style="margin-top:8px; width:100%;">Discard</button></div>`;
+      status.textContent = '';
+      document.getElementById('applyPlanBtn').addEventListener('click', async ()=>{
+        if(!confirm('This replaces your current workout plan. Continue?')) return;
+        plan.days = pendingGeneratedPlan.days.map(d=>({
+          id: uid(),
+          name: d.name,
+          exercises: d.exercises.map(e=>({ id: uid(), name: e.name, sets: e.sets||3, reps: e.reps||8, weight: e.startingWeight||0 }))
+        }));
+        await savePlan();
+        rotation.nextDayIndex = 0; await saveRotation();
+        activeDayId = null;
+        renderPlanEditor(); renderDayPicker(); renderToday(); renderProgressExOptions(); renderExerciseManager();
+        previewWrap.innerHTML = '<div class="card"><p class="muted">Plan applied — check Today and Setup.</p></div>';
+      });
+      document.getElementById('discardPlanBtn').addEventListener('click', ()=>{ previewWrap.innerHTML=''; pendingGeneratedPlan=null; });
+    }catch(err){
+      console.error(err);
+      status.textContent = 'Could not generate a plan: ' + (err.message || 'unknown error');
+    }
+    btn.disabled = false;
   });
 
   // ---------- compare ----------
@@ -1043,8 +1472,11 @@ ${summary || '(no sessions logged yet)'}`;
   // ---------- boot ----------
   async function boot(){
     await loadAll();
+    await loadAiConfig();
     fillProfileForm();
+    fillAiConfigForm();
     renderPlanEditor();
+    renderExerciseManager();
     renderDayPicker();
     renderToday();
     renderProgressExOptions();
