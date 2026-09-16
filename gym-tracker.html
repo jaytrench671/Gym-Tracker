@@ -1230,6 +1230,13 @@ Cable Crunch
     return s.replace(/\b\w/g, c=>c.toUpperCase());
   }
 
+  function looksLikeId(str){
+    if(!str) return true;
+    if(/^imp_/.test(str)) return true;
+    // typical slug shape: all lowercase, letters/digits/underscores only, underscore-separated
+    return /^[a-z0-9]+(_[a-z0-9]+)+$/.test(str);
+  }
+
   function allExercises(){
     const map = {};
     plan.days.forEach(d=> d.exercises.forEach(ex=> map[ex.id] = ex.name || 'Exercise'));
@@ -1243,23 +1250,42 @@ Cable Crunch
   }
 
   async function repairOrphanedExerciseNames(){
-    // One-time pass: any exercise id referenced in logs but missing from both the plan and
-    // exerciseNames gets a readable name persisted, so it stops showing as a raw id everywhere
-    // (including in AI coach prompts) after this point.
+    // Repairs two situations, persisting the fix so it doesn't keep recurring:
+    // 1) an exercise id referenced in logs but missing from both the plan and exerciseNames
+    // 2) a name that IS saved (in the plan or exerciseNames) but is itself just the raw slug/id —
+    //    e.g. from renaming without editing the pre-filled id text
     const known = new Set();
     plan.days.forEach(d=> d.exercises.forEach(ex=> known.add(ex.id)));
-    Object.keys(exerciseNames).forEach(id=> known.add(id));
-    let changed = false;
+    let namesChanged = false;
+    let planChanged = false;
+
+    plan.days.forEach(d=> d.exercises.forEach(ex=>{
+      if(ex.name && looksLikeId(ex.name)){
+        ex.name = humanizeId(ex.name);
+        planChanged = true;
+      }
+    }));
+
+    Object.keys(exerciseNames).forEach(id=>{
+      known.add(id);
+      if(looksLikeId(exerciseNames[id])){
+        exerciseNames[id] = humanizeId(id);
+        namesChanged = true;
+      }
+    });
+
     Object.values(logs).forEach(l=>{
       Object.keys(l.entries||{}).forEach(id=>{
         if(!known.has(id)){
           exerciseNames[id] = humanizeId(id);
           known.add(id);
-          changed = true;
+          namesChanged = true;
         }
       });
     });
-    if(changed) await saveExerciseNames();
+
+    if(namesChanged) await saveExerciseNames();
+    if(planChanged) await savePlan();
   }
 
   function slugify(name){
