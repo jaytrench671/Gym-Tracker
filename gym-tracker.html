@@ -2121,8 +2121,11 @@ Give a realistic, encouraging but honest outlook: for each lift, estimate roughl
       el.innerHTML = `<h2>Cloud sync</h2><p class="muted">Signed in as <strong>${escapeAttr(user.email)}</strong>. Your data syncs automatically (except exercise GIFs, which stay on this device).</p>
         <button class="btn-ghost btn-danger" id="cloudSignOutBtn" style="margin-top:10px;">Sign out</button>`;
       document.getElementById('cloudSignOutBtn').addEventListener('click', async ()=>{
+        if(!confirm("Sign out and clear this device's local copy of your data? (Your data stays safe in the cloud under your account — this just clears what's cached on this device.)")) return;
         await window.cloudSignOut();
+        clearLocalAppData();
         localStorage.removeItem('plates-cloud-skip');
+        localStorage.removeItem('plates-last-uid');
         location.reload();
       });
     } else {
@@ -2147,11 +2150,26 @@ Give a realistic, encouraging but honest outlook: for each lift, estimate roughl
     });
   }
 
+  function clearLocalAppData(){
+    // Wipe everything under our storage prefix (leaves the plain, non-prefixed keys like
+    // plates-cloud-skip and plates-last-uid untouched — those are account/session bookkeeping, not app data).
+    Object.keys(localStorage)
+      .filter(k => k.startsWith(STORE_PREFIX))
+      .forEach(k => localStorage.removeItem(k));
+  }
+
   async function boot(){
     await waitForCloudBridge();
     await (window.__cloudReady || Promise.resolve());
     const cloudUser = await waitForCloudAuthDecision();
     if(cloudUser && window.cloudPullAll){
+      const lastUid = localStorage.getItem('plates-last-uid');
+      if(lastUid !== cloudUser.uid){
+        // Different account than last time this browser was used (or a brand-new sign-in) —
+        // clear local data first so nothing from a previous account leaks into this session.
+        clearLocalAppData();
+        localStorage.setItem('plates-last-uid', cloudUser.uid);
+      }
       try{
         const cloudData = await window.cloudPullAll();
         Object.keys(cloudData).forEach(key=>{ localStorage.setItem(STORE_PREFIX+key, cloudData[key]); });
