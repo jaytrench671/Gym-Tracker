@@ -678,7 +678,14 @@ Cable Crunch
   let rotation = { nextDayIndex: 0 };
   let exerciseNames = {}; // exerciseId -> display name, for imported/orphaned exercises
   let activeDayId = null;
-  let todayStr = new Date().toISOString().slice(0,10);
+  function localDateStr(d){
+    d = d || new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  }
+  let todayStr = localDateStr();
 
   function uid(){ return Math.random().toString(36).slice(2,9); }
 
@@ -874,7 +881,7 @@ Cable Crunch
   function renderExerciseManager(){
     const wrap = document.getElementById('exerciseManager');
     const map = allExercises();
-    const ids = Object.keys(map);
+    const ids = Object.keys(map).sort((a,b)=> map[a].localeCompare(map[b], undefined, { sensitivity:'base' }));
     if(!ids.length){ wrap.innerHTML = '<p class="muted">No exercises yet — add some in your plan, or import history.</p>'; return; }
     const countFor = (id)=>{
       let c = 0;
@@ -976,7 +983,7 @@ Cable Crunch
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const stamp = new Date().toISOString().slice(0,10);
+    const stamp = localDateStr();
     a.href = url;
     a.download = `plates-backup-${stamp}.json`;
     document.body.appendChild(a);
@@ -1137,21 +1144,21 @@ Cable Crunch
         `;
         const [wStep, rStep] = row.querySelectorAll('.stepper');
         const weightStep = ()=> s.unit==='lb' ? 5 : 2.5;
-        wStep.querySelector('.plus').addEventListener('click', ()=>{ s.weight = +(s.weight + weightStep()).toFixed(1); saveLogs(); renderToday(); });
-        wStep.querySelector('.minus').addEventListener('click', ()=>{ s.weight = Math.max(0, +(s.weight - weightStep()).toFixed(1)); saveLogs(); renderToday(); });
+        wStep.querySelector('.plus').addEventListener('click', ()=>{ s.weight = +(s.weight + weightStep()).toFixed(1); renderToday(); });
+        wStep.querySelector('.minus').addEventListener('click', ()=>{ s.weight = Math.max(0, +(s.weight - weightStep()).toFixed(1)); renderToday(); });
         wStep.querySelector('.unit-toggle-btn').addEventListener('click', (e)=>{
           e.stopPropagation();
           const newUnit = s.unit==='kg' ? 'lb' : 'kg';
           s.weight = convertWeight(s.weight, s.unit, newUnit);
           s.unit = newUnit;
-          saveLogs(); renderToday();
+          renderToday();
         });
-        rStep.querySelector('.plus').addEventListener('click', ()=>{ s.reps = s.reps + 1; saveLogs(); renderToday(); });
-        rStep.querySelector('.minus').addEventListener('click', ()=>{ s.reps = Math.max(0, s.reps - 1); saveLogs(); renderToday(); });
-        row.querySelector('.check').addEventListener('click', (e)=>{ s.done = !s.done; saveLogs(); e.target.classList.toggle('on', s.done); });
+        rStep.querySelector('.plus').addEventListener('click', ()=>{ s.reps = s.reps + 1; renderToday(); });
+        rStep.querySelector('.minus').addEventListener('click', ()=>{ s.reps = Math.max(0, s.reps - 1); renderToday(); });
+        row.querySelector('.check').addEventListener('click', (e)=>{ s.done = !s.done; e.target.classList.toggle('on', s.done); });
         row.querySelector('.set-remove').addEventListener('click', ()=>{
           sets.splice(si,1);
-          saveLogs(); renderToday();
+          renderToday();
         });
         setsWrap.appendChild(row);
       });
@@ -1169,7 +1176,7 @@ Cable Crunch
       addSetBtn.addEventListener('click', ()=>{
         const last = sets[sets.length-1];
         sets.push({ weight: last?last.weight:0, unit: last?last.unit:settings.unit, reps: last?last.reps:ex.reps, done:false });
-        saveLogs(); renderToday();
+        renderToday();
       });
       blockActions.appendChild(addSetBtn);
 
@@ -1187,7 +1194,7 @@ Cable Crunch
           const startWeight = lastWeightFor(newId, 0);
           log.entries[newId] = Array.from({length: ex.sets}, ()=>({ weight: startWeight, unit: settings.unit, reps: ex.reps, done:false }));
         }
-        saveLogs(); saveExerciseNames(); renderToday();
+        renderToday();
       });
       blockActions.appendChild(swapBtn);
 
@@ -1197,7 +1204,7 @@ Cable Crunch
         revertBtn.textContent = 'Revert to original';
         revertBtn.addEventListener('click', ()=>{
           delete log.substitutions[ex.id];
-          saveLogs(); renderToday();
+          renderToday();
         });
         blockActions.appendChild(revertBtn);
       }
@@ -1211,6 +1218,7 @@ Cable Crunch
     finishBtn.textContent = 'Finish workout';
     finishBtn.addEventListener('click', async ()=>{
       await saveLogs();
+      await saveExerciseNames();
       const idx = plan.days.findIndex(d=>d.id===day.id);
       rotation.nextDayIndex = (idx + 1) % plan.days.length;
       await saveRotation();
