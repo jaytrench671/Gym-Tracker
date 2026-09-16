@@ -330,14 +330,7 @@
   // ===== Firebase cloud sync bridge =====
   // Fill in FIREBASE_CONFIG below with your own project's config (Firebase console → Project settings → your web app).
   // Until you do, FIREBASE_CONFIGURED stays false and the app runs exactly as before — local device storage only.
-  const FIREBASE_CONFIG = {
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
-const firebaseConfig = {
+ const firebaseConfig = {
   apiKey: "AIzaSyB8WERu9RNvg8LYOfpPz97V2DrGVEMhYMA",
   authDomain: "gym-tracker-81536.firebaseapp.com",
   projectId: "gym-tracker-81536",
@@ -345,10 +338,6 @@ const firebaseConfig = {
   messagingSenderId: "463133877591",
   appId: "1:463133877591:web:8a18b53e6375d9cae10a12"
 };
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-  };
   const FIREBASE_CONFIGURED = !!(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== "YOUR_API_KEY");
   window.__cloudConfigured = FIREBASE_CONFIGURED;
   window.__cloudAuthCallbacks = [];
