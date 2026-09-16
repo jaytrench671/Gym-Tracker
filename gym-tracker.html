@@ -326,6 +326,71 @@
 </style>
 </head>
 <body>
+<script type="module">
+  // ===== Firebase cloud sync bridge =====
+  // Fill in FIREBASE_CONFIG below with your own project's config (Firebase console → Project settings → your web app).
+  // Until you do, FIREBASE_CONFIGURED stays false and the app runs exactly as before — local device storage only.
+  const FIREBASE_CONFIG = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+  const FIREBASE_CONFIGURED = !!(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== "YOUR_API_KEY");
+  window.__cloudConfigured = FIREBASE_CONFIGURED;
+  window.__cloudAuthCallbacks = [];
+  window.onCloudAuthChange = (cb) => { window.__cloudAuthCallbacks.push(cb); };
+  window.__cloudReady = Promise.resolve(); // resolves once init (success or fail) is done
+
+  if (FIREBASE_CONFIGURED) {
+    window.__cloudReady = (async () => {
+      try {
+        const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js");
+        const { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
+          = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js");
+        const { getFirestore, doc, setDoc, getDocs, collection }
+          = await import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js");
+
+        const app = initializeApp(FIREBASE_CONFIG);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        window.cloudSignUp = (email, pw) => createUserWithEmailAndPassword(auth, email, pw);
+        window.cloudSignIn = (email, pw) => signInWithEmailAndPassword(auth, email, pw);
+        window.cloudSignOut = () => signOut(auth);
+        window.cloudResetPassword = (email) => sendPasswordResetEmail(auth, email);
+
+        window.cloudPush = async (key, valueStr) => {
+          if (key === 'exerciseMedia') return; // GIFs can exceed Firestore's per-document size limit — kept device-local only
+          if (!auth.currentUser) return;
+          try {
+            await setDoc(doc(db, 'users', auth.currentUser.uid, 'appData', key), { value: valueStr, updatedAt: Date.now() });
+          } catch (e) { console.error('cloud push failed', e); }
+        };
+
+        window.cloudPullAll = async () => {
+          if (!auth.currentUser) return {};
+          const out = {};
+          try {
+            const snap = await getDocs(collection(db, 'users', auth.currentUser.uid, 'appData'));
+            snap.forEach(d => { out[d.id] = d.data().value; });
+          } catch (e) { console.error('cloud pull failed', e); }
+          return out;
+        };
+
+        onAuthStateChanged(auth, (user) => {
+          window.__cloudUser = user;
+          window.__cloudAuthCallbacks.forEach(cb => cb(user));
+        });
+      } catch (e) {
+        console.error('Firebase init failed — falling back to device-only storage', e);
+        window.__cloudConfigured = false;
+      }
+    })();
+  }
+</script>
 <div class="app">
 
   <div class="topbar">
@@ -543,6 +608,11 @@ Cable Crunch
       <p class="muted" id="importStatus" style="margin-top:8px;"></p>
     </div>
 
+    <div class="card" id="cloudStatusCard">
+      <h2>Cloud sync</h2>
+      <p class="muted">Loading…</p>
+    </div>
+
     <div class="card">
       <h2>Backup & restore</h2>
       <p class="muted">Everything lives only in this browser — clearing site data or switching devices loses it. Export a backup regularly, and keep the file somewhere safe (Files app, email to yourself, cloud drive).</p>
@@ -567,6 +637,26 @@ Cable Crunch
     <button class="nav-item" data-view="coach"><span class="ic">✦</span><span class="lb">Coach</span></button>
     <button class="nav-item" data-view="compare"><span class="ic">⚖</span><span class="lb">Compare</span></button>
     <button class="nav-item" data-view="setup"><span class="ic">⚙</span><span class="lb">Setup</span></button>
+  </div>
+</div>
+
+<div id="authOverlay" style="display:none; position:fixed; inset:0; background:var(--bg); z-index:50; align-items:center; justify-content:center; padding:20px;">
+  <div class="card" style="max-width:360px; width:100%;">
+    <h2>Sign in to sync</h2>
+    <p class="muted">Cloud sync is set up for this app. Sign in (or create an account) so your data follows you across devices.</p>
+    <div class="field" style="margin-top:12px;">
+      <label>Email</label>
+      <input type="email" id="authEmail" placeholder="you@example.com" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="authPassword" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="btn-primary" id="authSignInBtn">Sign in</button>
+    <button class="btn-ghost" id="authSignUpBtn" style="margin-top:8px; width:100%;">Create account</button>
+    <button class="btn-ghost" id="authForgotBtn" style="margin-top:8px; width:100%;">Forgot password</button>
+    <p class="muted" id="authStatus" style="margin-top:10px; min-height:16px;"></p>
+    <button class="btn-ghost" id="authSkipBtn" style="margin-top:14px; width:100%; border:none;">Skip — use this device only</button>
   </div>
 </div>
 
@@ -601,7 +691,9 @@ Cable Crunch
   }
   function lsSet(key, value){
     try{
-      localStorage.setItem(STORE_PREFIX+key, JSON.stringify(value));
+      const json = JSON.stringify(value);
+      localStorage.setItem(STORE_PREFIX+key, json);
+      if(window.cloudPush) window.cloudPush(key, json); // fire-and-forget cloud mirror, no-op if not signed in
       return true;
     }catch(e){ console.error('storage write failed', e); return false; }
   }
@@ -1964,7 +2056,85 @@ Give a realistic, encouraging but honest outlook: for each lift, estimate roughl
   }
 
   // ---------- boot ----------
+  function waitForCloudAuthDecision(){
+    return new Promise((resolve)=>{
+      if(!window.__cloudConfigured){ resolve(null); return; }
+      if(localStorage.getItem('plates-cloud-skip')==='1'){ resolve(null); return; }
+      const overlay = document.getElementById('authOverlay');
+      let resolved = false;
+      const finish = (user)=>{ if(resolved) return; resolved = true; overlay.style.display='none'; resolve(user); };
+
+      window.onCloudAuthChange((user)=>{
+        if(user) finish(user);
+        else overlay.style.display = 'flex';
+      });
+
+      document.getElementById('authSkipBtn').addEventListener('click', ()=>{
+        localStorage.setItem('plates-cloud-skip','1');
+        finish(null);
+      });
+      document.getElementById('authSignInBtn').addEventListener('click', async ()=>{
+        const status = document.getElementById('authStatus');
+        const email = document.getElementById('authEmail').value.trim();
+        const pw = document.getElementById('authPassword').value;
+        if(!email || !pw){ status.textContent = 'Enter an email and password.'; return; }
+        status.textContent = 'Signing in…';
+        try{ await window.cloudSignIn(email, pw); }
+        catch(e){ status.textContent = e.message || 'Sign in failed.'; }
+      });
+      document.getElementById('authSignUpBtn').addEventListener('click', async ()=>{
+        const status = document.getElementById('authStatus');
+        const email = document.getElementById('authEmail').value.trim();
+        const pw = document.getElementById('authPassword').value;
+        if(!email || !pw){ status.textContent = 'Enter an email and password.'; return; }
+        if(pw.length < 6){ status.textContent = 'Password must be at least 6 characters.'; return; }
+        status.textContent = 'Creating account…';
+        try{ await window.cloudSignUp(email, pw); }
+        catch(e){ status.textContent = e.message || 'Sign up failed.'; }
+      });
+      document.getElementById('authForgotBtn').addEventListener('click', async ()=>{
+        const status = document.getElementById('authStatus');
+        const email = document.getElementById('authEmail').value.trim();
+        if(!email){ status.textContent = 'Enter your email above first.'; return; }
+        try{ await window.cloudResetPassword(email); status.textContent = 'Password reset email sent.'; }
+        catch(e){ status.textContent = e.message || 'Could not send reset email.'; }
+      });
+    });
+  }
+
+  function renderCloudStatus(user){
+    const el = document.getElementById('cloudStatusCard');
+    if(!el) return;
+    if(!window.__cloudConfigured){
+      el.innerHTML = `<h2>Cloud sync</h2><p class="muted">Not set up yet — this app is running in device-only mode. See the setup guide to enable sync across devices.</p>`;
+    } else if(user){
+      el.innerHTML = `<h2>Cloud sync</h2><p class="muted">Signed in as <strong>${escapeAttr(user.email)}</strong>. Your data syncs automatically (except exercise GIFs, which stay on this device).</p>
+        <button class="btn-ghost btn-danger" id="cloudSignOutBtn" style="margin-top:10px;">Sign out</button>`;
+      document.getElementById('cloudSignOutBtn').addEventListener('click', async ()=>{
+        await window.cloudSignOut();
+        localStorage.removeItem('plates-cloud-skip');
+        location.reload();
+      });
+    } else {
+      el.innerHTML = `<h2>Cloud sync</h2><p class="muted">Using this device only.</p>
+        <button class="btn-primary" id="cloudSignInAgainBtn" style="margin-top:10px;">Sign in / create account</button>`;
+      document.getElementById('cloudSignInAgainBtn').addEventListener('click', ()=>{
+        localStorage.removeItem('plates-cloud-skip');
+        document.getElementById('authOverlay').style.display = 'flex';
+      });
+    }
+  }
+
   async function boot(){
+    await (window.__cloudReady || Promise.resolve());
+    const cloudUser = await waitForCloudAuthDecision();
+    if(cloudUser && window.cloudPullAll){
+      try{
+        const cloudData = await window.cloudPullAll();
+        Object.keys(cloudData).forEach(key=>{ localStorage.setItem(STORE_PREFIX+key, cloudData[key]); });
+      }catch(e){ console.error('cloud pull merge failed', e); }
+    }
+    renderCloudStatus(cloudUser);
     await loadAll();
     await loadAiConfig();
     await loadCustomStandards();
