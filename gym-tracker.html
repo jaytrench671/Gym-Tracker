@@ -389,6 +389,7 @@
       } catch (e) {
         console.error('Firebase init failed — falling back to device-only storage', e);
         window.__cloudConfigured = false;
+        window.__cloudInitError = (e && (e.message || e.code)) ? `${e.code||''} ${e.message||''}`.trim() : String(e);
       }
     })();
   }
@@ -2108,7 +2109,14 @@ Give a realistic, encouraging but honest outlook: for each lift, estimate roughl
     const el = document.getElementById('cloudStatusCard');
     if(!el) return;
     if(!window.__cloudConfigured){
-      el.innerHTML = `<h2>Cloud sync</h2><p class="muted">Not set up yet — this app is running in device-only mode. See the setup guide to enable sync across devices.</p>`;
+      if(window.__cloudBridgeTimedOut){
+        el.innerHTML = `<h2>Cloud sync</h2><p class="muted">The Firebase setup script never loaded (likely blocked by network, an ad/privacy blocker, or the CDN being unreachable) — running in device-only mode.</p>`;
+      } else if(window.__cloudInitError){
+        el.innerHTML = `<h2>Cloud sync</h2><p class="muted">Your Firebase config is present, but setup failed to initialize, so this is running in device-only mode.</p>
+          <p class="muted" style="margin-top:8px; color:var(--bad); font-family:monospace; font-size:12px; word-break:break-word;">${escapeAttr(window.__cloudInitError)}</p>`;
+      } else {
+        el.innerHTML = `<h2>Cloud sync</h2><p class="muted">Not set up yet — this app is running in device-only mode. See the setup guide to enable sync across devices.</p>`;
+      }
     } else if(user){
       el.innerHTML = `<h2>Cloud sync</h2><p class="muted">Signed in as <strong>${escapeAttr(user.email)}</strong>. Your data syncs automatically (except exercise GIFs, which stay on this device).</p>
         <button class="btn-ghost btn-danger" id="cloudSignOutBtn" style="margin-top:10px;">Sign out</button>`;
@@ -2132,7 +2140,10 @@ Give a realistic, encouraging but honest outlook: for each lift, estimate roughl
       if(window.__cloudBridgeLoaded){ resolve(); return; }
       window.addEventListener('cloudBridgeReady', ()=>resolve(), { once:true });
       // safety net in case the module script fails to load at all (e.g. blocked by network) — don't hang forever
-      setTimeout(resolve, 4000);
+      setTimeout(()=>{
+        if(!window.__cloudBridgeLoaded) window.__cloudBridgeTimedOut = true;
+        resolve();
+      }, 4000);
     });
   }
 
