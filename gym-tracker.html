@@ -343,6 +343,8 @@
   window.__cloudAuthCallbacks = [];
   window.onCloudAuthChange = (cb) => { window.__cloudAuthCallbacks.push(cb); };
   window.__cloudReady = Promise.resolve(); // resolves once init (success or fail) is done
+  window.__cloudBridgeLoaded = true;
+  window.dispatchEvent(new Event('cloudBridgeReady'));
 
   if (FIREBASE_CONFIGURED) {
     window.__cloudReady = (async () => {
@@ -2125,7 +2127,17 @@ Give a realistic, encouraging but honest outlook: for each lift, estimate roughl
     }
   }
 
+  function waitForCloudBridge(){
+    return new Promise((resolve)=>{
+      if(window.__cloudBridgeLoaded){ resolve(); return; }
+      window.addEventListener('cloudBridgeReady', ()=>resolve(), { once:true });
+      // safety net in case the module script fails to load at all (e.g. blocked by network) — don't hang forever
+      setTimeout(resolve, 4000);
+    });
+  }
+
   async function boot(){
+    await waitForCloudBridge();
     await (window.__cloudReady || Promise.resolve());
     const cloudUser = await waitForCloudAuthDecision();
     if(cloudUser && window.cloudPullAll){
