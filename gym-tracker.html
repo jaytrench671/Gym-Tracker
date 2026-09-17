@@ -411,7 +411,7 @@
           const out = {};
           try {
             const snap = await getDocs(collection(db, 'users', auth.currentUser.uid, 'appData'));
-            snap.forEach(d => { out[d.id] = d.data().value; });
+            snap.forEach(d => { out[d.id] = { value: d.data().value, updatedAt: d.data().updatedAt || 0 }; });
           } catch (e) { console.error('cloud pull failed', e); }
           return out;
         };
@@ -739,7 +739,9 @@ Cable Crunch
   function lsSet(key, value){
     try{
       const json = JSON.stringify(value);
+      const ts = Date.now();
       localStorage.setItem(STORE_PREFIX+key, json);
+      localStorage.setItem(STORE_PREFIX+key+':ts', String(ts));
       if(window.cloudPush) window.cloudPush(key, json); // fire-and-forget cloud mirror, no-op if not signed in
       return true;
     }catch(e){ console.error('storage write failed', e); return false; }
@@ -1656,7 +1658,7 @@ Cable Crunch
         html += `<div class="history-actions">
           <button class="btn-primary btn-small" data-save-history="${esc(date)}|${esc(id)}">Save</button>
           <button class="btn-ghost btn-small" data-delete-history="${esc(date)}|${esc(id)}">Delete exercise</button>
-        </div></div>`;
+        </div></div></div>`;
       });
       html += `</div>`;
     });
@@ -2010,27 +2012,66 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
   async function loadLifts(){ const l = lsGet('compareLiftsList'); if(l && l.length) LIFTS = l; }
   async function saveLiftsList(){ lsSet('compareLiftsList', LIFTS); }
 
-  let compareLifts = {};
-  async function loadCompareLifts(){ const c = lsGet('compareLiftsValues'); if(c) compareLifts = c; }
+  let compareLifts = {}; // { squat: { value:'', unit:'kg' }, ... } — each lift remembers its own unit
+  async function loadCompareLifts(){
+    const c = lsGet('compareLiftsValues');
+    if(c){
+      // migrate old flat-string format ({squat:'140'}) into {value,unit}
+      Object.keys(c).forEach(k=>{
+        if(c[k] && typeof c[k] === 'object' && 'value' in c[k]) return;
+        c[k] = { value: c[k] || '', unit: settings.unit };
+      });
+      compareLifts = c;
+    }
+  }
   async function saveCompareLifts(){ lsSet('compareLiftsValues', compareLifts); }
-  let customStandards = {}; // { squat: {beginner,novice,intermediate,advanced,elite}, ... }
-  async function loadCustomStandards(){ const c = lsGet('customStandards'); if(c) customStandards = c; }
+  function getLift(k){
+    if(!compareLifts[k]) compareLifts[k] = { value:'', unit: settings.unit };
+    return compareLifts[k];
+  }
+
+  let customStandards = {}; // { squat: {unit:'kg', beginner,novice,intermediate,advanced,elite}, ... }
+  async function loadCustomStandards(){
+    const c = lsGet('customStandards');
+    if(c){
+      Object.keys(c).forEach(k=>{ if(!c[k].unit) c[k].unit = settings.unit; }); // migrate: assume old entries used the app-wide unit at the time
+      customStandards = c;
+    }
+  }
   async function saveCustomStandards(){ lsSet('customStandards', customStandards); }
 
   function renderCompareInputs(){
     const wrap = document.getElementById('compareInputs');
-    wrap.innerHTML = '<label style="margin-bottom:10px;">Your best set (1 rep or close to it)</label>' + LIFTS.map(([k,label,slug])=>`
-      <div class="lift-input-row">
+    wrap.innerHTML = '<label style="margin-bottom:10px;">Your best set (1 rep or close to it)</label>' + LIFTS.map(([k,label,slug])=>{
+      const lift = getLift(k);
+      return `<div class="lift-input-row">
         <span>${escapeAttr(label)}</span>
-        <input type="number" data-lift="${escapeAttr(k)}" value="${compareLifts[k]||''}" placeholder="${settings.unit||'kg'}">
-      </div>
-    `).join('') + `
+        <div class="weight-entry" style="width:120px;">
+          <input type="number" data-lift="${escapeAttr(k)}" value="${lift.value||''}" placeholder="${lift.unit}">
+          <button type="button" class="unit-toggle-btn" data-lift-unit-toggle="${escapeAttr(k)}">${lift.unit}</button>
+        </div>
+      </div>`;
+    }).join('') + `
       <div style="display:flex; gap:8px; margin-top:12px; border-top:1px solid var(--line); padding-top:12px;">
         <input type="text" id="newLiftName" placeholder="Add a lift (e.g. Hip thrust)" style="flex:1;">
         <button class="btn-ghost btn-small" id="addLiftBtn">Add</button>
       </div>`;
     wrap.querySelectorAll('input[data-lift]').forEach(inp=>{
-      inp.addEventListener('input', async ()=>{ compareLifts[inp.dataset.lift] = inp.value; await saveCompareLifts(); renderCompareResult(); });
+      inp.addEventListener('input', async ()=>{ getLift(inp.dataset.lift).value = inp.value; await saveCompareLifts(); renderCompareResult(); });
+    });
+    wrap.querySelectorAll('[data-lift-unit-toggle]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const k = btn.dataset.liftUnitToggle;
+        const lift = getLift(k);
+        const newUnit = lift.unit==='kg' ? 'lb' : 'kg';
+        if(lift.value !== '' && lift.value != null){
+          lift.value = convertWeight(parseFloat(lift.value), lift.unit, newUnit);
+        }
+        lift.unit = newUnit;
+        await saveCompareLifts();
+        renderCompareInputs();
+        renderCompareResult();
+      });
     });
     document.getElementById('addLiftBtn').addEventListener('click', async ()=>{
       const nameInput = document.getElementById('newLiftName');
@@ -2050,9 +2091,13 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
   function renderStandardsEditor(){
     const wrap = document.getElementById('standardsEditor');
     wrap.innerHTML = LIFTS.map(([k,label])=>{
-      const s = customStandards[k] || {};
+      if(!customStandards[k]) customStandards[k] = { unit: settings.unit };
+      const s = customStandards[k];
       return `<div style="margin-bottom:14px;">
-        <div style="font-weight:600; font-size:13.5px; margin-bottom:6px;">${label} (${settings.unit||'kg'})</div>
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+          <div style="font-weight:600; font-size:13.5px;">${escapeAttr(label)}</div>
+          <button type="button" class="btn-ghost btn-small" data-std-unit-toggle="${escapeAttr(k)}" style="padding:3px 8px; font-size:11px;">${s.unit}</button>
+        </div>
         <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:6px;">
           ${TIER_NAMES.map(t=>{
             const key = t.toLowerCase();
@@ -2065,8 +2110,25 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
     wrap.querySelectorAll('[data-std-lift]').forEach(inp=>{
       inp.addEventListener('input', ()=>{
         const k = inp.dataset.stdLift, tier = inp.dataset.stdTier;
-        if(!customStandards[k]) customStandards[k] = {};
+        if(!customStandards[k]) customStandards[k] = { unit: settings.unit };
         customStandards[k][tier] = inp.value;
+      });
+    });
+    wrap.querySelectorAll('[data-std-unit-toggle]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const k = btn.dataset.stdUnitToggle;
+        const s = customStandards[k];
+        const newUnit = s.unit==='kg' ? 'lb' : 'kg';
+        TIER_NAMES.forEach(t=>{
+          const key = t.toLowerCase();
+          if(s[key] !== undefined && s[key] !== ''){
+            s[key] = convertWeight(parseFloat(s[key]), s.unit, newUnit);
+          }
+        });
+        s.unit = newUnit;
+        await saveCustomStandards();
+        renderStandardsEditor();
+        renderCompareResult();
       });
     });
     document.getElementById('saveStandardsBtn').addEventListener('click', async ()=>{
@@ -2083,15 +2145,18 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
     if(el.style.display!=='none') renderStandardsEditor();
   });
 
-  function getThresholdsFor(k, sex, bw){
+  function getThresholdsFor(k, sex, bw, targetUnit){
     const custom = customStandards[k];
     const hasFullCustom = custom && TIER_NAMES.every(t=> custom[t.toLowerCase()] !== undefined && custom[t.toLowerCase()] !== '');
     if(hasFullCustom){
-      return { values: TIER_NAMES.map(t=>parseFloat(custom[t.toLowerCase()])), isCustom: true };
+      const fromUnit = custom.unit || targetUnit;
+      return { values: TIER_NAMES.map(t=>convertWeight(parseFloat(custom[t.toLowerCase()]), fromUnit, targetUnit)), isCustom: true };
     }
     const ratios = STANDARDS[sex] && STANDARDS[sex][k];
     if(!ratios) return null; // custom lift with no standards entered yet — nothing to compare against
-    return { values: ratios.map(r=>Math.round(r*bw*10)/10), isCustom: false };
+    // ratios are bodyweight multiples in kg terms; convert bodyweight to kg first for the calc, then result to targetUnit
+    const bwKg = profile.unit==='lb' ? convertWeight(bw,'lb','kg') : bw;
+    return { values: ratios.map(r=> convertWeight(Math.round(r*bwKg*10)/10, 'kg', targetUnit)), isCustom: false };
   }
 
   function renderCompareResult(){
@@ -2104,13 +2169,15 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
     const sex = profile.gender==='female' ? 'female' : 'male';
     let html = '';
     LIFTS.forEach(([k,label,slug])=>{
-      const val = parseFloat(compareLifts[k]);
+      const lift = getLift(k);
+      const val = parseFloat(lift.value);
       if(!val) return;
-      const thresholdInfo = getThresholdsFor(k, sex, bw);
+      const liftUnit = lift.unit;
+      const thresholdInfo = getThresholdsFor(k, sex, bw, liftUnit);
       if(!thresholdInfo){
         html += `<div class="card">
           <h2>${escapeAttr(label)}</h2>
-          <div class="muted">${val}${settings.unit||'kg'}</div>
+          <div class="muted">${val}${liftUnit}</div>
           <div class="muted" style="margin-top:6px;">Add your standards above (✎) to see a tier and gap-to-next-level for this lift.</div>
         </div>`;
         return;
@@ -2124,14 +2191,15 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
       const prevThreshold = tierIdx>0 ? thresholds[tierIdx-1] : 0;
       const pct = Math.min(100, Math.max(4, ((val-prevThreshold)/((nextThreshold-prevThreshold)||1))*100));
       const gap = Math.max(0, Math.round((nextThreshold - val)*10)/10);
-      const slUrl = `https://strengthlevel.com/strength-standards/${slug}/${settings.unit==='lb'?'lb':'kg'}`;
+      const slUrl = `https://strengthlevel.com/strength-standards/${slug}/${liftUnit==='lb'?'lb':'kg'}`;
+      const bwInLiftUnit = profile.unit===liftUnit ? bw : convertWeight(bw, profile.unit, liftUnit);
       html += `<div class="card">
         <h2>${escapeAttr(label)}</h2>
-        <div class="muted">${val}${settings.unit||'kg'}${isCustom ? '' : ` · ${(val/bw).toFixed(2)}× bodyweight`}</div>
+        <div class="muted">${val}${liftUnit}${isCustom ? '' : ` · ${(val/bwInLiftUnit).toFixed(2)}× bodyweight`}</div>
         <div class="tier-bar"><div class="tier-fill" style="width:${pct}%"></div></div>
         <div style="font-family:'Barlow Condensed',sans-serif; font-size:19px; font-weight:700; color:var(--chalk);">${TIER_NAMES[tierIdx]} ${isCustom ? '' : '<span class="muted" style="font-family:\'Inter\',sans-serif; font-size:11px; font-weight:500;">(our rough estimate)</span>'}</div>
         ${atMax ? `<div class="muted" style="margin-top:6px;">You're at the top of your entered standards for this lift 💪</div>` :
-          `<div class="muted" style="margin-top:6px;">${gap}${settings.unit||'kg'} more to reach ${TIER_NAMES[Math.min(tierIdx+ (isCustom?0:1), TIER_NAMES.length-1)] || TIER_NAMES[tierIdx]}${isCustom ? '' : ' (next level)'}</div>`}
+          `<div class="muted" style="margin-top:6px;">${gap}${liftUnit} more to reach ${TIER_NAMES[Math.min(tierIdx+ (isCustom?0:1), TIER_NAMES.length-1)] || TIER_NAMES[tierIdx]}${isCustom ? '' : ' (next level)'}</div>`}
         ${!isCustom ? `<a href="${slUrl}" target="_blank" rel="noopener" style="display:inline-block; margin-top:8px; font-size:12.5px; color:var(--steel);">Enter your exact standards above for a precise comparison →</a>` : ''}
       </div>`;
     });
@@ -2143,18 +2211,18 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
     const bw = profile.weight || 'unknown';
     const sex = profile.gender==='female' ? 'female' : 'male';
     const liftLines = LIFTS.map(([k,label])=>{
-      const val = compareLifts[k];
-      if(!val) return null;
+      const lift = compareLifts[k];
+      if(!lift || !lift.value) return null;
       const std = customStandards[k];
-      const stdLine = std ? TIER_NAMES.map(t=>`${t}: ${std[t.toLowerCase()]||'?'}`).join(', ') : '(no standards entered)';
-      return `${label}: current best ${val}${settings.unit||'kg'}. Their standards — ${stdLine}`;
+      const stdLine = std ? TIER_NAMES.map(t=>`${t}: ${std[t.toLowerCase()]||'?'}${std[t.toLowerCase()]?std.unit:''}`).join(', ') : '(no standards entered)';
+      return `${label}: current best ${lift.value}${lift.unit}. Their standards — ${stdLine}`;
     }).filter(Boolean).join('\n');
     if(!liftLines) return null;
     return `Athlete: ${sex}, age ${profile.age||'unknown'}, bodyweight ${bw}${profile.unit||'kg'}, training goal context from their broader profile below.
 
 ${buildFullContext('', '', '', '')}
 
-Their main lift standards (self-reported from StrengthLevel.com, in ${settings.unit||'kg'}):
+Their main lift standards (self-reported from StrengthLevel.com, units noted per lift above):
 ${liftLines}
 
 Give a realistic, encouraging but honest outlook: for each lift, estimate roughly how many weeks or training blocks it might reasonably take to close the gap to their next strength level, based on typical progression rates for their level and how their logged history looks. Call out 1-2 concrete near-term milestones ("in the next few weeks/sessions you could realistically...") rather than vague generalities. Keep it to a few short paragraphs, plain text, no markdown headers.`;
@@ -2301,7 +2369,20 @@ Give a realistic, encouraging but honest outlook: for each lift, estimate roughl
       }
       try{
         const cloudData = await window.cloudPullAll();
-        Object.keys(cloudData).forEach(key=>{ localStorage.setItem(STORE_PREFIX+key, cloudData[key]); });
+        Object.keys(cloudData).forEach(key=>{
+          const cloudEntry = cloudData[key];
+          const cloudTs = (cloudEntry && cloudEntry.updatedAt) || 0;
+          const localTs = Number(localStorage.getItem(STORE_PREFIX+key+':ts')) || 0;
+          if(cloudTs >= localTs){
+            localStorage.setItem(STORE_PREFIX+key, cloudEntry.value);
+            localStorage.setItem(STORE_PREFIX+key+':ts', String(cloudTs));
+          } else {
+            // local has a newer unsynced edit that a previous fire-and-forget push may never have
+            // completed — re-push it now so the cloud actually catches up.
+            const localVal = localStorage.getItem(STORE_PREFIX+key);
+            if(localVal && window.cloudPush) window.cloudPush(key, localVal);
+          }
+        });
       }catch(e){ console.error('cloud pull merge failed', e); }
     }
     renderCloudStatus(cloudUser);
