@@ -162,6 +162,40 @@
   .set-remove{ background:none; border:none; color:var(--ink-faint); font-size:16px; width:28px; height:36px; }
   .set-remove:active{ color:var(--bad); }
   .set-num{ font-family:'Barlow Condensed',sans-serif; font-weight:700; color:var(--ink-faint); font-size:15px; text-align:center; }
+  .weight-entry{
+    display:flex;
+    align-items:center;
+    background:var(--bg-raised-2);
+    border:1px solid var(--line);
+    border-radius:10px;
+    overflow:hidden;
+    height:36px;
+  }
+  .weight-entry .weight-input{
+    flex:1;
+    min-width:0;
+    background:transparent;
+    border:none;
+    color:var(--ink);
+    font-family:'Barlow Condensed',sans-serif;
+    font-size:17px;
+    font-weight:700;
+    text-align:center;
+    padding:0;
+    height:100%;
+  }
+  .weight-entry .weight-input:focus{ outline:none; background:rgba(233,194,94,0.08); }
+  .weight-entry .unit-toggle-btn{
+    flex-shrink:0;
+    background:none;
+    border:none;
+    border-left:1px solid var(--line);
+    color:var(--chalk);
+    font-size:11px;
+    font-weight:700;
+    padding:0 8px;
+    height:100%;
+  }
   .stepper{
     display:flex;
     align-items:center;
@@ -409,7 +443,10 @@
 
   <!-- TODAY -->
   <div class="view active" id="view-today">
-    <div class="daypicker" id="dayPicker"></div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <div class="daypicker" id="dayPicker" style="flex:1;"></div>
+      <button class="btn-icon" id="removeWorkoutBtn" title="Remove this suggested workout" style="flex-shrink:0;">🗑</button>
+    </div>
     <div id="todayContent"></div>
   </div>
 
@@ -673,9 +710,9 @@ Cable Crunch
   // which is only for body-composition stats (bodyweight/InBody). Different gym machines report
   // in different units, so each SET stores its own unit; settings.unit is just the current display/default.
   let settings = { unit: 'kg' };
-  let plan = { days: [] }; // {id,name,exercises:[{id,name,sets,reps,weight}]}
+  let plan = { days: [] }; // {id,name,exercises:[{id,name,sets,reps,weight}]} — a pool of suggested workouts, not a fixed weekly schedule
   let logs = {}; // dateStr -> { dayId, entries: { exerciseId: [{weight,reps,done}] } }
-  let rotation = { nextDayIndex: 0 };
+  let todayDraft = null; // in-progress, unsaved Today session — never appears in logs/calendar/coach until Finish
   let exerciseNames = {}; // exerciseId -> display name, for imported/orphaned exercises
   let activeDayId = null;
   function localDateStr(d){
@@ -711,16 +748,18 @@ Cable Crunch
     const p = lsGet('profile'); if(p) profile = p;
     const pl = lsGet('plan'); if(pl) plan = pl;
     const lg = lsGet('logs'); if(lg) logs = lg;
-    const rt = lsGet('rotation'); if(rt) rotation = rt;
     const en = lsGet('exerciseNames'); if(en) exerciseNames = en;
     const st = lsGet('settings');
     if(st) settings = st;
     else if(profile.unit) settings.unit = profile.unit; // migrate old combined unit setting
+    const draft = lsGet('todayDraft');
+    todayDraft = (draft && draft.date === todayStr) ? draft : null; // discard a stale draft from a previous day
   }
   async function saveProfile(){ lsSet('profile', profile); }
   async function savePlan(){ lsSet('plan', plan); }
   async function saveLogs(){ lsSet('logs', logs); }
-  async function saveRotation(){ lsSet('rotation', rotation); }
+  async function saveTodayDraft(){ lsSet('todayDraft', todayDraft); }
+  async function clearTodayDraft(){ todayDraft = null; lsSet('todayDraft', null); }
   async function saveExerciseNames(){ lsSet('exerciseNames', exerciseNames); }
   async function saveSettings(){ lsSet('settings', settings); }
 
@@ -973,7 +1012,7 @@ Cable Crunch
     return {
       version: 1,
       exportedAt: new Date().toISOString(),
-      profile, plan, logs, rotation, exerciseNames, settings,
+      profile, plan, logs, exerciseNames, settings,
       customStandards, compareLiftsList: LIFTS, compareLiftsValues: compareLifts,
       exerciseMedia
     };
@@ -1011,7 +1050,6 @@ Cable Crunch
       if(data.profile) profile = data.profile;
       if(data.plan) plan = data.plan;
       if(data.logs) logs = data.logs;
-      if(data.rotation) rotation = data.rotation;
       if(data.exerciseNames) exerciseNames = data.exerciseNames;
       if(data.settings) settings = data.settings;
       if(data.customStandards) customStandards = data.customStandards;
@@ -1041,10 +1079,10 @@ Cable Crunch
     profile = { gender:'male', age:'', weight:'', height:'', unit:'kg' };
     plan = { days: [] };
     logs = {};
-    rotation = { nextDayIndex: 0 };
+    todayDraft = null;
     exerciseNames = {};
     aiConfig = { provider: 'claude', anthropicKey: '', openaiKey: '', geminiKey: '' };
-    await Promise.all([saveProfile(), savePlan(), saveLogs(), saveRotation(), saveExerciseNames(), saveAiConfig()]);
+    await Promise.all([saveProfile(), savePlan(), saveLogs(), clearTodayDraft(), saveExerciseNames(), saveAiConfig()]);
     fillAiConfigForm();
     renderExerciseManager();
     fillProfileForm(); renderPlanEditor(); renderDayPicker(); renderToday(); renderProgressExOptions();
@@ -1058,8 +1096,7 @@ Cable Crunch
     wrap.innerHTML = '';
     if(!plan.days.length){ activeDayId = null; return; }
     if(!activeDayId || !plan.days.find(d=>d.id===activeDayId)){
-      const idx = rotation.nextDayIndex % plan.days.length;
-      activeDayId = plan.days[idx].id;
+      activeDayId = plan.days[0].id; // no more rotation — just default to the first suggested workout
     }
     plan.days.forEach(d=>{
       const b = document.createElement('button');
@@ -1071,8 +1108,10 @@ Cable Crunch
   }
 
   function getTodayLog(){
-    if(!logs[todayStr]) logs[todayStr] = { dayId: activeDayId, entries:{} };
-    return logs[todayStr];
+    if(!todayDraft || todayDraft.date !== todayStr){
+      todayDraft = { date: todayStr, dayId: activeDayId, entries:{}, substitutions:{} };
+    }
+    return todayDraft;
   }
 
   function lastWeightFor(exId, exDefault){
@@ -1093,13 +1132,16 @@ Cable Crunch
 
   function renderToday(){
     const content = document.getElementById('todayContent');
+    const removeBtn = document.getElementById('removeWorkoutBtn');
     if(!plan.days.length){
-      content.innerHTML = `<div class="empty"><div class="big">No workout plan yet</div>Head to Setup to add your training days and exercises.</div>`;
+      content.innerHTML = `<div class="empty"><div class="big">No suggested workouts yet</div>Head to Setup or Coach to add some.</div>`;
+      removeBtn.style.display = 'none';
       return;
     }
+    removeBtn.style.display = '';
     const day = plan.days.find(d=>d.id===activeDayId);
     if(!day || !day.exercises.length){
-      content.innerHTML = `<div class="empty"><div class="big">${day? (day.name||'This day') : 'This day'} is empty</div>Add exercises to it in Setup.</div>`;
+      content.innerHTML = `<div class="empty"><div class="big">${day? (day.name||'This workout') : 'This workout'} is empty</div>Add exercises to it in Setup.</div>`;
       return;
     }
     const log = getTodayLog();
@@ -1129,10 +1171,9 @@ Cable Crunch
         row.className = 'set-row';
         row.innerHTML = `
           <div class="set-num">${si+1}</div>
-          <div class="stepper" data-k="weight">
-            <button class="minus">−</button>
-            <div class="val">${s.weight}<button type="button" class="unit-toggle-btn">${s.unit}</button></div>
-            <button class="plus">+</button>
+          <div class="weight-entry">
+            <input type="number" step="0.5" inputmode="decimal" class="weight-input" value="${s.weight}">
+            <button type="button" class="unit-toggle-btn">${s.unit}</button>
           </div>
           <div class="stepper" data-k="reps">
             <button class="minus">−</button>
@@ -1142,23 +1183,30 @@ Cable Crunch
           <button class="check ${s.done?'on':''}">✓</button>
           <button class="set-remove" title="Remove this set">×</button>
         `;
-        const [wStep, rStep] = row.querySelectorAll('.stepper');
-        const weightStep = ()=> s.unit==='lb' ? 5 : 2.5;
-        wStep.querySelector('.plus').addEventListener('click', ()=>{ s.weight = +(s.weight + weightStep()).toFixed(1); renderToday(); });
-        wStep.querySelector('.minus').addEventListener('click', ()=>{ s.weight = Math.max(0, +(s.weight - weightStep()).toFixed(1)); renderToday(); });
-        wStep.querySelector('.unit-toggle-btn').addEventListener('click', (e)=>{
+        const weightInput = row.querySelector('.weight-input');
+        const unitBtn = row.querySelector('.unit-toggle-btn');
+        const rStep = row.querySelector('.stepper');
+        const commitWeight = ()=>{
+          const v = parseFloat(weightInput.value);
+          s.weight = isNaN(v) ? 0 : v;
+          saveTodayDraft();
+        };
+        weightInput.addEventListener('change', commitWeight);
+        weightInput.addEventListener('blur', commitWeight);
+        unitBtn.addEventListener('click', (e)=>{
           e.stopPropagation();
+          commitWeight();
           const newUnit = s.unit==='kg' ? 'lb' : 'kg';
           s.weight = convertWeight(s.weight, s.unit, newUnit);
           s.unit = newUnit;
-          renderToday();
+          saveTodayDraft(); renderToday();
         });
-        rStep.querySelector('.plus').addEventListener('click', ()=>{ s.reps = s.reps + 1; renderToday(); });
-        rStep.querySelector('.minus').addEventListener('click', ()=>{ s.reps = Math.max(0, s.reps - 1); renderToday(); });
-        row.querySelector('.check').addEventListener('click', (e)=>{ s.done = !s.done; e.target.classList.toggle('on', s.done); });
+        rStep.querySelector('.plus').addEventListener('click', ()=>{ s.reps = s.reps + 1; saveTodayDraft(); renderToday(); });
+        rStep.querySelector('.minus').addEventListener('click', ()=>{ s.reps = Math.max(0, s.reps - 1); saveTodayDraft(); renderToday(); });
+        row.querySelector('.check').addEventListener('click', (e)=>{ s.done = !s.done; saveTodayDraft(); e.target.classList.toggle('on', s.done); });
         row.querySelector('.set-remove').addEventListener('click', ()=>{
           sets.splice(si,1);
-          renderToday();
+          saveTodayDraft(); renderToday();
         });
         setsWrap.appendChild(row);
       });
@@ -1176,7 +1224,7 @@ Cable Crunch
       addSetBtn.addEventListener('click', ()=>{
         const last = sets[sets.length-1];
         sets.push({ weight: last?last.weight:0, unit: last?last.unit:settings.unit, reps: last?last.reps:ex.reps, done:false });
-        renderToday();
+        saveTodayDraft(); renderToday();
       });
       blockActions.appendChild(addSetBtn);
 
@@ -1194,7 +1242,7 @@ Cable Crunch
           const startWeight = lastWeightFor(newId, 0);
           log.entries[newId] = Array.from({length: ex.sets}, ()=>({ weight: startWeight, unit: settings.unit, reps: ex.reps, done:false }));
         }
-        renderToday();
+        saveTodayDraft(); saveExerciseNames(); renderToday();
       });
       blockActions.appendChild(swapBtn);
 
@@ -1204,7 +1252,7 @@ Cable Crunch
         revertBtn.textContent = 'Revert to original';
         revertBtn.addEventListener('click', ()=>{
           delete log.substitutions[ex.id];
-          renderToday();
+          saveTodayDraft(); renderToday();
         });
         blockActions.appendChild(revertBtn);
       }
@@ -1217,19 +1265,40 @@ Cable Crunch
     finishBtn.style.marginTop = '4px';
     finishBtn.textContent = 'Finish workout';
     finishBtn.addEventListener('click', async ()=>{
+      // Commit the draft into real history now — this is the only moment anything gets logged.
+      if(!logs[todayStr]) logs[todayStr] = { dayId: day.id, entries: {} };
+      Object.assign(logs[todayStr].entries, log.entries);
+      logs[todayStr].dayId = day.id;
+      if(log.substitutions && Object.keys(log.substitutions).length){
+        logs[todayStr].substitutions = Object.assign(logs[todayStr].substitutions||{}, log.substitutions);
+      }
       await saveLogs();
       await saveExerciseNames();
-      const idx = plan.days.findIndex(d=>d.id===day.id);
-      rotation.nextDayIndex = (idx + 1) % plan.days.length;
-      await saveRotation();
+      await clearTodayDraft();
+      // Completed workouts come out of the suggested pool — generate a fresh batch (or add more) whenever you like.
+      plan.days = plan.days.filter(d=>d.id!==day.id);
+      await savePlan();
+      activeDayId = null;
       finishBtn.textContent = 'Saved ✓';
-      setTimeout(()=>{ finishBtn.textContent = 'Finish workout'; }, 1200);
-      renderProgressExOptions();
+      setTimeout(()=>{
+        renderDayPicker(); renderToday(); renderProgressExOptions(); renderHistory(); renderExerciseManager();
+      }, 700);
     });
     content.innerHTML = '';
     content.appendChild(card);
     content.appendChild(finishBtn);
   }
+
+  document.getElementById('removeWorkoutBtn').addEventListener('click', async ()=>{
+    const day = plan.days.find(d=>d.id===activeDayId);
+    if(!day) return;
+    if(!confirm(`Remove "${day.name}" from your suggested workouts? (This won't log anything — it just takes it off today's list.)`)) return;
+    plan.days = plan.days.filter(d=>d.id!==day.id);
+    if(todayDraft && todayDraft.dayId===day.id){ await clearTodayDraft(); }
+    await savePlan();
+    activeDayId = null;
+    renderDayPicker(); renderToday(); renderExerciseManager();
+  });
 
   // ---------- progress ----------
   function humanizeId(id){
@@ -1864,7 +1933,7 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
       btn.addEventListener('click', ()=>{ activePlanOptionIndex = Number(btn.dataset.optTab); renderPlanPreview(); });
     });
     document.getElementById('applyPlanBtn').addEventListener('click', async ()=>{
-      if(!confirm('This replaces your current workout plan. Continue?')) return;
+      if(!confirm('This replaces your current suggested workouts. Continue?')) return;
       const chosen = generatedPlanOptions[activePlanOptionIndex];
       plan.days = chosen.days.map(d=>({
         id: uid(),
@@ -1872,7 +1941,7 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
         exercises: d.exercises.map(e=>({ id: uid(), name: e.name, sets: e.sets||3, reps: e.reps||8, weight: e.startingWeight||0 }))
       }));
       await savePlan();
-      rotation.nextDayIndex = 0; await saveRotation();
+      await clearTodayDraft();
       activeDayId = null;
       renderPlanEditor(); renderDayPicker(); renderToday(); renderProgressExOptions(); renderExerciseManager();
       generatedPlanOptions = []; activePlanOptionIndex = 0;
