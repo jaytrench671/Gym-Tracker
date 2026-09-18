@@ -154,13 +154,21 @@
 
   .set-row{
     display:grid;
-    grid-template-columns:22px 1fr 1fr 34px 28px;
-    gap:6px;
+    grid-template-columns:22px 1fr 1fr 34px 32px;
+    gap:8px;
     align-items:center;
     margin-bottom:8px;
   }
-  .set-remove{ background:none; border:none; color:var(--ink-faint); font-size:16px; width:28px; height:36px; }
-  .set-remove:active{ color:var(--bad); }
+  .set-remove{
+    background:var(--bg-raised-2);
+    border:1px solid var(--line);
+    border-radius:8px;
+    color:var(--ink-faint);
+    font-size:15px;
+    width:32px;
+    height:36px;
+  }
+  .set-remove:active{ background:rgba(217,118,91,0.15); border-color:var(--bad); color:var(--bad); }
   .set-num{ font-family:'Barlow Condensed',sans-serif; font-weight:700; color:var(--ink-faint); font-size:15px; text-align:center; }
   .weight-entry{
     display:flex;
@@ -320,7 +328,7 @@
     height:10px; border-radius:6px; background:var(--bg-raised-2); overflow:hidden; margin:6px 0 4px;
   }
   .tier-fill{ height:100%; background:linear-gradient(90deg,var(--steel),var(--chalk)); }
-  .lift-input-row{ display:grid; grid-template-columns:1fr 90px; gap:8px; align-items:center; margin-bottom:10px; }
+  .lift-input-row{ display:grid; grid-template-columns:1fr 130px; gap:8px; align-items:center; margin-bottom:10px; }
   .lift-input-row span{ font-size:14px; font-weight:600; }
   .history-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
   .history-item{background:var(--bg-raised-2);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px;}
@@ -2046,7 +2054,7 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this s
       const lift = getLift(k);
       return `<div class="lift-input-row">
         <span>${escapeAttr(label)}</span>
-        <div class="weight-entry" style="width:120px;">
+        <div class="weight-entry" style="width:100%;">
           <input type="number" data-lift="${escapeAttr(k)}" value="${lift.value||''}" placeholder="${lift.unit}">
           <button type="button" class="unit-toggle-btn" data-lift-unit-toggle="${escapeAttr(k)}">${lift.unit}</button>
         </div>
