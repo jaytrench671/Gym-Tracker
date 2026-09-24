@@ -688,6 +688,27 @@ Cable Crunch
   </div>
 </div>
 
+<div id="exercisePickerOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:55; align-items:center; justify-content:center; padding:20px;">
+  <div class="card" style="max-width:360px; width:100%;">
+    <h2 id="pickerTitle">Choose exercise</h2>
+    <div class="field" style="margin-top:10px;">
+      <select id="pickerSelect"></select>
+    </div>
+    <div id="pickerNewFields" style="display:none;">
+      <div class="field">
+        <label>New exercise name</label>
+        <input type="text" id="pickerNewName" placeholder="e.g. Incline Bench Press">
+      </div>
+      <div class="field">
+        <label>Default unit for this exercise (which does this machine display?)</label>
+        <select id="pickerNewUnit"><option value="kg">kg</option><option value="lb">lb</option></select>
+      </div>
+    </div>
+    <button class="btn-primary" id="pickerConfirmBtn" style="margin-top:6px;">Confirm</button>
+    <button class="btn-ghost" id="pickerCancelBtn" style="margin-top:8px; width:100%;">Cancel</button>
+  </div>
+</div>
+
 <div id="authOverlay" style="display:none; position:fixed; inset:0; background:var(--bg); z-index:50; align-items:center; justify-content:center; padding:20px;">
   <div class="card" style="max-width:360px; width:100%;">
     <h2>Sign in to sync</h2>
@@ -800,6 +821,7 @@ Cable Crunch
     document.querySelectorAll('.nav-item').forEach(b=>{
       b.classList.toggle('on', b.dataset.view===name);
     });
+    if(name==='today'){ renderDayPicker(); renderToday(); }
     if(name==='history') renderHistory();
     if(name==='progress') renderProgress();
     if(name==='compare') renderCompare();
@@ -882,13 +904,24 @@ Cable Crunch
         const row = document.createElement('div');
         row.className = 'plan-ex-row';
         row.innerHTML = `
-          <input type="text" class="name" value="${escapeAttr(ex.name)}" placeholder="Exercise">
+          <button type="button" class="btn-ghost name-picker-btn" style="flex:2; text-align:left; font-size:13.5px; padding:8px 9px;">${ex.name ? escapeAttr(ex.name) : 'Choose exercise…'}</button>
           <input type="number" class="num" value="${ex.sets}" placeholder="Sets" title="Sets">
           <input type="number" class="num" value="${ex.reps}" placeholder="Reps" title="Reps">
           <button class="btn-icon delex">×</button>
         `;
-        const [nameI, setsI, repsI] = row.querySelectorAll('input');
-        nameI.addEventListener('input', ()=>{ ex.name = nameI.value; savePlan(); });
+        const [setsI, repsI] = row.querySelectorAll('input');
+        row.querySelector('.name-picker-btn').addEventListener('click', ()=>{
+          openExercisePicker({
+            title: 'Choose exercise',
+            currentName: ex.name,
+            onConfirm: (name)=>{
+              ex.name = name;
+              savePlan();
+              renderPlanEditor();
+              renderExerciseManager();
+            }
+          });
+        });
         setsI.addEventListener('input', ()=>{ ex.sets = parseInt(setsI.value)||1; savePlan(); });
         repsI.addEventListener('input', ()=>{ ex.reps = parseInt(repsI.value)||1; savePlan(); });
         row.querySelector('.delex').addEventListener('click', ()=>{
@@ -900,17 +933,17 @@ Cable Crunch
       el.querySelector('.dayname').addEventListener('input', (e)=>{ day.name = e.target.value; savePlan(); renderDayPicker(); });
       el.querySelector('.addex').addEventListener('click', ()=>{
         day.exercises.push({ id: uid(), name:'', sets:3, reps:8, weight:0 });
-        savePlan(); renderPlanEditor(); renderToday();
+        savePlan(); renderPlanEditor();
       });
       el.querySelector('.deldy').addEventListener('click', ()=>{
-        plan.days.splice(di,1); savePlan(); renderPlanEditor(); renderDayPicker(); renderToday(); renderProgressExOptions();
+        plan.days.splice(di,1); savePlan(); renderPlanEditor(); renderDayPicker(); renderProgressExOptions();
       });
       wrap.appendChild(el);
     });
   }
   document.getElementById('addDayBtn').addEventListener('click', ()=>{
     plan.days.push({ id: uid(), name: 'Day '+(plan.days.length+1), exercises: [] });
-    savePlan(); renderPlanEditor(); renderDayPicker(); renderToday(); renderProgressExOptions();
+    savePlan(); renderPlanEditor(); renderDayPicker(); renderProgressExOptions();
   });
   function findPlanExercise(id){
     for(const day of plan.days){
@@ -940,12 +973,17 @@ Cable Crunch
     wrap.innerHTML = ids.map(id=>{
       const otherOptions = ids.filter(o=>o!==id).map(o=>`<option value="${escapeAttr(o)}">${escapeAttr(map[o])}</option>`).join('');
       const media = exerciseMedia[id];
+      const defaultUnit = getDefaultUnitForName(map[id]);
       return `<div class="exmgr-row" data-id="${escapeAttr(id)}" style="flex-wrap:wrap;">
         <input type="text" class="exmgr-name" value="${escapeAttr(map[id])}">
         <span class="exmgr-count">${countFor(id)} sets</span>
         <button class="btn-ghost btn-small exmgr-rename">Rename</button>
         <select class="exmgr-target"><option value="">Merge into…</option>${otherOptions}</select>
         <button class="btn-ghost btn-small exmgr-merge">Merge</button>
+        <div style="width:100%; display:flex; align-items:center; gap:8px; margin-top:6px;">
+          <span class="muted" style="font-size:11px;">Default unit:</span>
+          <button type="button" class="btn-ghost btn-small exmgr-unit-toggle" style="min-width:40px;">${defaultUnit}</button>
+        </div>
         <div style="width:100%; display:flex; align-items:center; gap:8px; margin-top:6px;">
           ${media ? `<img src="${media}" style="width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid var(--line);">` : `<div style="width:40px;height:40px;border-radius:8px;background:var(--bg-raised-2);border:1px solid var(--line);"></div>`}
           <label class="btn-ghost btn-small" style="cursor:pointer;">
@@ -956,6 +994,17 @@ Cable Crunch
         </div>
       </div>`;
     }).join('');
+
+    wrap.querySelectorAll('.exmgr-unit-toggle').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const id = btn.closest('.exmgr-row').dataset.id;
+        const name = map[id];
+        const current = getDefaultUnitForName(name);
+        exerciseDefaults[normName(name)] = current==='kg' ? 'lb' : 'kg';
+        await saveExerciseDefaults();
+        renderExerciseManager();
+      });
+    });
 
     wrap.querySelectorAll('.exmgr-media-input').forEach(input=>{
       input.addEventListener('change', async (e)=>{
@@ -990,9 +1039,15 @@ Cable Crunch
       row.querySelector('.exmgr-rename').addEventListener('click', async ()=>{
         const newName = row.querySelector('.exmgr-name').value.trim();
         if(!newName) return;
+        const oldName = map[id];
         const found = findPlanExercise(id);
         if(found){ found.ex.name = newName; await savePlan(); }
         else { exerciseNames[id] = newName; await saveExerciseNames(); }
+        if(normName(oldName) !== normName(newName) && exerciseDefaults[normName(oldName)] !== undefined){
+          exerciseDefaults[normName(newName)] = exerciseDefaults[normName(oldName)];
+          delete exerciseDefaults[normName(oldName)];
+          await saveExerciseDefaults();
+        }
         renderExerciseManager(); renderPlanEditor(); renderToday(); renderProgressExOptions(); renderHistory();
       });
       row.querySelector('.exmgr-merge').addEventListener('click', async ()=>{
@@ -1024,7 +1079,7 @@ Cable Crunch
       exportedAt: new Date().toISOString(),
       profile, plan, logs, exerciseNames, settings,
       customStandards, compareLiftsList: LIFTS, compareLiftsValues: compareLifts,
-      exerciseMedia
+      exerciseMedia, exerciseDefaults
     };
   }
   document.getElementById('exportDataBtn').addEventListener('click', ()=>{
@@ -1066,10 +1121,11 @@ Cable Crunch
       if(data.compareLiftsList && data.compareLiftsList.length) LIFTS = data.compareLiftsList;
       if(data.compareLiftsValues) compareLifts = data.compareLiftsValues;
       if(data.exerciseMedia) exerciseMedia = data.exerciseMedia;
+      if(data.exerciseDefaults) exerciseDefaults = data.exerciseDefaults;
 
       await Promise.all([
-        saveProfile(), savePlan(), saveLogs(), saveRotation(), saveExerciseNames(),
-        saveSettings(), saveCustomStandards(), saveLiftsList(), saveCompareLifts(), saveExerciseMedia()
+        saveProfile(), savePlan(), saveLogs(), saveExerciseNames(),
+        saveSettings(), saveCustomStandards(), saveLiftsList(), saveCompareLifts(), saveExerciseMedia(), saveExerciseDefaults()
       ]);
 
       fillProfileForm();
@@ -1091,8 +1147,9 @@ Cable Crunch
     logs = {};
     todayDraft = null;
     exerciseNames = {};
+    exerciseDefaults = {};
     aiConfig = { provider: 'claude', anthropicKey: '', openaiKey: '', geminiKey: '' };
-    await Promise.all([saveProfile(), savePlan(), saveLogs(), clearTodayDraft(), saveExerciseNames(), saveAiConfig()]);
+    await Promise.all([saveProfile(), savePlan(), saveLogs(), clearTodayDraft(), saveExerciseNames(), saveExerciseDefaults(), saveAiConfig()]);
     fillAiConfigForm();
     renderExerciseManager();
     fillProfileForm(); renderPlanEditor(); renderDayPicker(); renderToday(); renderProgressExOptions();
@@ -1124,8 +1181,9 @@ Cable Crunch
     return todayDraft;
   }
 
-  function lastWeightFor(exId, exDefault){
-    // find most recent logged weight for this exercise across history, converted to the current display unit
+  function lastWeightFor(exId, exDefault, targetUnit){
+    // find most recent logged weight for this exercise across history, converted to the target unit
+    targetUnit = targetUnit || settings.unit;
     const dates = Object.keys(logs).sort().reverse();
     for(const d of dates){
       const entry = logs[d].entries && logs[d].entries[exId];
@@ -1133,7 +1191,7 @@ Cable Crunch
         const withWeight = entry.filter(s=>s.weight);
         if(withWeight.length){
           const last = withWeight[withWeight.length-1];
-          return toDisplayUnit(last.weight, last.unit);
+          return convertWeight(last.weight, last.unit, targetUnit);
         }
       }
     }
@@ -1166,8 +1224,9 @@ Cable Crunch
       const effectiveId = subId || ex.id;
       const effectiveName = subId ? (exerciseNames[subId] || subId) : (ex.name || 'Exercise');
       if(!log.entries[effectiveId]){
-        const startWeight = lastWeightFor(effectiveId, ex.weight);
-        log.entries[effectiveId] = Array.from({length: ex.sets}, ()=>({ weight: startWeight, unit: settings.unit, reps: ex.reps, done:false }));
+        const exUnit = getDefaultUnitForName(effectiveName);
+        const startWeight = lastWeightFor(effectiveId, ex.weight, exUnit);
+        log.entries[effectiveId] = Array.from({length: ex.sets}, ()=>({ weight: startWeight, unit: exUnit, reps: ex.reps, done:false }));
       }
       const sets = log.entries[effectiveId];
       const block = document.createElement('div');
@@ -1233,7 +1292,7 @@ Cable Crunch
       addSetBtn.textContent = '+ Add set';
       addSetBtn.addEventListener('click', ()=>{
         const last = sets[sets.length-1];
-        sets.push({ weight: last?last.weight:0, unit: last?last.unit:settings.unit, reps: last?last.reps:ex.reps, done:false });
+        sets.push({ weight: last?last.weight:0, unit: last?last.unit:getDefaultUnitForName(effectiveName), reps: last?last.reps:ex.reps, done:false });
         saveTodayDraft(); renderToday();
       });
       blockActions.appendChild(addSetBtn);
@@ -1242,17 +1301,22 @@ Cable Crunch
       swapBtn.className = 'btn-ghost btn-small';
       swapBtn.textContent = subId ? 'Swap again' : 'Swap exercise';
       swapBtn.addEventListener('click', ()=>{
-        const altName = prompt(`Machine taken / doing something else instead of "${ex.name}"?\nEnter the alternative exercise name for today:`, '');
-        if(!altName || !altName.trim()) return;
-        const newId = slugify(altName.trim());
-        exerciseNames[newId] = altName.trim();
-        if(!log.substitutions) log.substitutions = {};
-        log.substitutions[ex.id] = newId;
-        if(!log.entries[newId]){
-          const startWeight = lastWeightFor(newId, 0);
-          log.entries[newId] = Array.from({length: ex.sets}, ()=>({ weight: startWeight, unit: settings.unit, reps: ex.reps, done:false }));
-        }
-        saveTodayDraft(); saveExerciseNames(); renderToday();
+        openExercisePicker({
+          title: `Swap "${ex.name}" for today`,
+          currentName: '',
+          onConfirm: (altName)=>{
+            const newId = slugify(altName.trim());
+            exerciseNames[newId] = altName.trim();
+            if(!log.substitutions) log.substitutions = {};
+            log.substitutions[ex.id] = newId;
+            if(!log.entries[newId]){
+              const unit = getDefaultUnitForName(altName);
+              const startWeight = lastWeightFor(newId, 0, unit);
+              log.entries[newId] = Array.from({length: ex.sets}, ()=>({ weight: startWeight, unit, reps: ex.reps, done:false }));
+            }
+            saveTodayDraft(); saveExerciseNames(); renderToday();
+          }
+        });
       });
       blockActions.appendChild(swapBtn);
 
@@ -1311,6 +1375,59 @@ Cable Crunch
   });
 
   // ---------- progress ----------
+  // ---------- per-exercise default unit (some machines always show kg, some always lb) ----------
+  let exerciseDefaults = {}; // { normalizedName: 'kg'|'lb' }
+  async function loadExerciseDefaults(){ const d = lsGet('exerciseDefaults'); if(d) exerciseDefaults = d; }
+  async function saveExerciseDefaults(){ lsSet('exerciseDefaults', exerciseDefaults); }
+  function normName(name){ return (name||'').trim().toLowerCase(); }
+  function getDefaultUnitForName(name){ return exerciseDefaults[normName(name)] || settings.unit; }
+
+  // ---------- shared exercise picker: select an existing exercise or add a brand new one ----------
+  function allExerciseNamesSorted(){
+    const names = new Set(Object.values(allExercises()));
+    return [...names].sort((a,b)=> a.localeCompare(b, undefined, { sensitivity:'base' }));
+  }
+
+  function openExercisePicker({ title, currentName, onConfirm }){
+    const overlay = document.getElementById('exercisePickerOverlay');
+    const select = document.getElementById('pickerSelect');
+    const newFields = document.getElementById('pickerNewFields');
+    const newNameInput = document.getElementById('pickerNewName');
+    const newUnitSelect = document.getElementById('pickerNewUnit');
+    document.getElementById('pickerTitle').textContent = title || 'Choose exercise';
+
+    const names = allExerciseNamesSorted();
+    select.innerHTML = `<option value="">Select an exercise…</option>` +
+      names.map(n=>`<option value="${escapeAttr(n)}" ${n===currentName?'selected':''}>${escapeAttr(n)}</option>`).join('') +
+      `<option value="__new__">+ Add new exercise</option>`;
+    newFields.style.display = 'none';
+    newNameInput.value = '';
+    newUnitSelect.value = settings.unit;
+
+    select.onchange = ()=>{ newFields.style.display = select.value==='__new__' ? '' : 'none'; };
+
+    overlay.style.display = 'flex';
+
+    const cleanup = ()=>{ overlay.style.display = 'none'; confirmBtn.onclick=null; cancelBtn.onclick=null; };
+    const confirmBtn = document.getElementById('pickerConfirmBtn');
+    const cancelBtn = document.getElementById('pickerCancelBtn');
+
+    confirmBtn.onclick = async ()=>{
+      if(select.value==='__new__'){
+        const name = newNameInput.value.trim();
+        if(!name) return;
+        exerciseDefaults[normName(name)] = newUnitSelect.value;
+        await saveExerciseDefaults();
+        cleanup();
+        onConfirm(name);
+      } else if(select.value){
+        cleanup();
+        onConfirm(select.value);
+      }
+    };
+    cancelBtn.onclick = ()=>{ cleanup(); };
+  }
+
   function humanizeId(id){
     let s = id.replace(/^imp_/, '').replace(/_/g, ' ').trim();
     if(!s) return id;
@@ -1537,11 +1654,7 @@ Cable Crunch
       </div></div>`;
     });
     html += `<div style="border-top:1px solid var(--line);padding-top:12px;margin-top:12px;" data-add-exercise-block="${esc(date)}">
-      <label style="display:block;margin-bottom:6px;">Add exercise to this day</label>
-      <div style="display:flex; gap:8px;">
-        <input type="text" class="new-ex-name" placeholder="Exercise name" style="flex:1;">
-        <button class="btn-primary btn-small" data-add-exercise="${esc(date)}">Add</button>
-      </div>
+      <button class="btn-primary btn-small" data-add-exercise="${esc(date)}">+ Add exercise to this day</button>
     </div>`;
     return html;
   }
@@ -1573,19 +1686,22 @@ Cable Crunch
       });
     });
     container.querySelectorAll('[data-add-exercise]').forEach(btn=>{
-      btn.addEventListener('click', async ()=>{
+      btn.addEventListener('click', ()=>{
         const date = btn.dataset.addExercise;
-        const block = container.querySelector(`[data-add-exercise-block="${CSS.escape(date)}"]`);
-        const input = block.querySelector('.new-ex-name');
-        const name = (input.value||'').trim();
-        if(!name) return;
-        const id = slugify(name);
-        exerciseNames[id] = name;
-        if(!logs[date]) logs[date] = { dayId:null, entries:{} };
-        if(!logs[date].entries[id]) logs[date].entries[id] = [];
-        logs[date].entries[id].push({ weight:0, unit: settings.unit, reps:0, done:false });
-        await saveLogs(); await saveExerciseNames();
-        renderCalendar(); renderHistoryDay(); renderHistorySearch(); renderProgressExOptions(); renderExerciseManager();
+        openExercisePicker({
+          title: `Add exercise to ${date}`,
+          currentName: '',
+          onConfirm: async (name)=>{
+            const id = slugify(name);
+            exerciseNames[id] = name;
+            const unit = getDefaultUnitForName(name);
+            if(!logs[date]) logs[date] = { dayId:null, entries:{} };
+            if(!logs[date].entries[id]) logs[date].entries[id] = [];
+            logs[date].entries[id].push({ weight:0, unit, reps:0, done:false });
+            await saveLogs(); await saveExerciseNames();
+            renderCalendar(); renderHistoryDay(); renderHistorySearch(); renderProgressExOptions(); renderExerciseManager();
+          }
+        });
       });
     });
     container.querySelectorAll('[data-save-history]').forEach(btn=>{
@@ -2400,6 +2516,7 @@ Give a realistic, encouraging but honest outlook: for each lift, estimate roughl
     await loadLifts();
     await loadCompareLifts();
     await loadExerciseMedia();
+    await loadExerciseDefaults();
     await repairOrphanedExerciseNames();
     document.getElementById('unitToggleKg').classList.toggle('on-unit', settings.unit==='kg');
     document.getElementById('unitToggleLb').classList.toggle('on-unit', settings.unit==='lb');
