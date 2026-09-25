@@ -980,6 +980,7 @@ Cable Crunch
         <button class="btn-ghost btn-small exmgr-rename">Rename</button>
         <select class="exmgr-target"><option value="">Merge into…</option>${otherOptions}</select>
         <button class="btn-ghost btn-small exmgr-merge">Merge</button>
+        <button class="btn-ghost btn-small exmgr-delete" style="color:#d33;">Delete</button>
         <div style="width:100%; display:flex; align-items:center; gap:8px; margin-top:6px;">
           <span class="muted" style="font-size:11px;">Default unit:</span>
           <button type="button" class="btn-ghost btn-small exmgr-unit-toggle" style="min-width:40px;">${defaultUnit}</button>
@@ -1066,6 +1067,29 @@ Cable Crunch
         const found = findPlanExercise(id);
         if(found){ found.day.exercises = found.day.exercises.filter(e=>e.id!==id); await savePlan(); }
         await saveLogs(); await saveExerciseNames();
+        renderExerciseManager(); renderPlanEditor(); renderToday(); renderProgressExOptions(); renderHistory();
+      });
+      row.querySelector('.exmgr-delete').addEventListener('click', async ()=>{
+        const name = map[id];
+        const sets = countFor(id);
+        const warn = sets ? ` This will permanently delete ${sets} logged set${sets===1?'':'s'} across your history.` : '';
+        if(!confirm(`Delete "${name}" entirely?${warn} This can't be undone.`)) return;
+        // Remove every trace: logged sets, any plan-day it lives on, its display name,
+        // its per-exercise unit default, and any how-to GIF.
+        Object.keys(logs).forEach(date=>{
+          const entries = logs[date].entries || {};
+          if(entries[id]){
+            delete entries[id];
+            if(logs[date].substitutions) Object.keys(logs[date].substitutions).forEach(k=>{ if(logs[date].substitutions[k]===id) delete logs[date].substitutions[k]; });
+            if(!Object.keys(entries).length) delete logs[date];
+          }
+        });
+        const found = findPlanExercise(id);
+        if(found){ found.day.exercises = found.day.exercises.filter(e=>e.id!==id); await savePlan(); }
+        delete exerciseNames[id];
+        delete exerciseMedia[id];
+        if(exerciseDefaults[normName(name)] !== undefined){ delete exerciseDefaults[normName(name)]; await saveExerciseDefaults(); }
+        await saveLogs(); await saveExerciseNames(); await saveExerciseMedia();
         renderExerciseManager(); renderPlanEditor(); renderToday(); renderProgressExOptions(); renderHistory();
       });
     });
@@ -1346,6 +1370,15 @@ Cable Crunch
       if(log.substitutions && Object.keys(log.substitutions).length){
         logs[todayStr].substitutions = Object.assign(logs[todayStr].substitutions||{}, log.substitutions);
       }
+      // Finishing removes this day from the plan pool below, which is the only place a
+      // plan-day exercise's name lives (mechanism #1 exercises store `name` on the day
+      // object itself, nothing else). Persist each one into exerciseNames first so
+      // history/calendar can still show the real name instead of falling back to a
+      // humanized version of the raw uid() — same guard already used when deleting a
+      // single exercise from a day in Setup.
+      day.exercises.forEach(ex=>{
+        exerciseNames[ex.id] = exerciseNames[ex.id] || ex.name || ex.id;
+      });
       await saveLogs();
       await saveExerciseNames();
       await clearTodayDraft();
