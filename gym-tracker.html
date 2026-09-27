@@ -1364,8 +1364,18 @@ Cable Crunch
     finishBtn.textContent = 'Finish workout';
     finishBtn.addEventListener('click', async ()=>{
       // Commit the draft into real history now — this is the only moment anything gets logged.
+      // Only commit each exercise's *currently effective* entry (its swapped-to id if it's
+      // been swapped, otherwise its own id) — never the raw draft dump. log.entries can still
+      // hold a leftover entry under the original id after a swap (kept on purpose so "Revert
+      // to original" has something to restore to), and blindly copying all of log.entries would
+      // carry that stale original entry into history right alongside the swapped-in one, so the
+      // old exercise would still show up in the calendar even though you swapped it out.
       if(!logs[todayStr]) logs[todayStr] = { dayId: day.id, entries: {} };
-      Object.assign(logs[todayStr].entries, log.entries);
+      day.exercises.forEach(ex=>{
+        const subId = log.substitutions && log.substitutions[ex.id];
+        const effectiveId = subId || ex.id;
+        if(log.entries[effectiveId]) logs[todayStr].entries[effectiveId] = log.entries[effectiveId];
+      });
       logs[todayStr].dayId = day.id;
       if(log.substitutions && Object.keys(log.substitutions).length){
         logs[todayStr].substitutions = Object.assign(logs[todayStr].substitutions||{}, log.substitutions);
