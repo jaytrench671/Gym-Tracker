@@ -1222,6 +1222,60 @@ Cable Crunch
     return exDefault || 0;
   }
 
+  // Single source of truth for "what actually counts as this exercise's logged data
+  // right now" — used by both Finish workout and Copy-as-text so they can never
+  // disagree about which entry is the live one after a swap.
+  function effectiveEntriesForDay(day, log){
+    const map = {};
+    day.exercises.forEach(ex=>{
+      const subId = log.substitutions && log.substitutions[ex.id];
+      const effectiveId = subId || ex.id;
+      if(log.entries[effectiveId]) map[effectiveId] = log.entries[effectiveId];
+    });
+    return map;
+  }
+
+  // Turns a set of exercise entries into a plain-text block someone can copy and
+  // paste elsewhere (a notes app, a message, another tracker). dayName is optional —
+  // history entries usually don't have a reliable day name once the plan day that
+  // spawned them has been consumed from the pool, so this falls back to just the date.
+  function formatWorkoutText(dayName, dateLabel, entries, exMap){
+    const lines = [ dayName ? `${dayName} — ${dateLabel}` : dateLabel ];
+    Object.keys(entries).forEach(id=>{
+      const name = exMap[id] || id;
+      const sets = (entries[id] || []).filter(Boolean);
+      if(!sets.length) return;
+      const setStr = sets.map(s=>{
+        const unit = s.unit || settings.unit || 'kg';
+        const mark = s.done===false ? ' (not done)' : '';
+        return `${s.weight}${unit}×${s.reps}${mark}`;
+      }).join(', ');
+      lines.push(`${name}: ${setStr}`);
+    });
+    return lines.join('\n');
+  }
+
+  // Shared clipboard-copy-with-fallback, same pattern as the Coach tab's copy button:
+  // if navigator.clipboard is unavailable or denied, show the text in a <pre> so the
+  // person can select and copy it by hand instead of hitting a silent dead end.
+  async function copyTextWithFallback(text, statusEl){
+    try{
+      await navigator.clipboard.writeText(text);
+      statusEl.textContent = 'Copied — paste it anywhere.';
+      const oldPre = statusEl.nextElementSibling;
+      if(oldPre && oldPre.tagName==='PRE') oldPre.remove();
+    }catch(e){
+      statusEl.textContent = "Couldn't copy automatically — select and copy the text below.";
+      const pre = document.createElement('pre');
+      pre.style.whiteSpace = 'pre-wrap';
+      pre.style.fontSize = '12.5px';
+      pre.style.color = 'var(--ink-dim)';
+      pre.style.marginTop = '10px';
+      pre.textContent = text;
+      statusEl.after(pre);
+    }
+  }
+
   function renderToday(){
     const content = document.getElementById('todayContent');
     const removeBtn = document.getElementById('removeWorkoutBtn');
@@ -1371,11 +1425,7 @@ Cable Crunch
       // carry that stale original entry into history right alongside the swapped-in one, so the
       // old exercise would still show up in the calendar even though you swapped it out.
       if(!logs[todayStr]) logs[todayStr] = { dayId: day.id, entries: {} };
-      day.exercises.forEach(ex=>{
-        const subId = log.substitutions && log.substitutions[ex.id];
-        const effectiveId = subId || ex.id;
-        if(log.entries[effectiveId]) logs[todayStr].entries[effectiveId] = log.entries[effectiveId];
-      });
+      Object.assign(logs[todayStr].entries, effectiveEntriesForDay(day, log));
       logs[todayStr].dayId = day.id;
       if(log.substitutions && Object.keys(log.substitutions).length){
         logs[todayStr].substitutions = Object.assign(logs[todayStr].substitutions||{}, log.substitutions);
@@ -1404,6 +1454,20 @@ Cable Crunch
     content.innerHTML = '';
     content.appendChild(card);
     content.appendChild(finishBtn);
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'btn-ghost';
+    copyBtn.style.marginTop = '8px';
+    copyBtn.textContent = 'Copy workout as text';
+    const copyStatus = document.createElement('p');
+    copyStatus.className = 'muted';
+    copyStatus.style.cssText = 'margin-top:6px;min-height:16px;font-size:12.5px;';
+    copyBtn.addEventListener('click', ()=>{
+      const text = formatWorkoutText(day.name, todayStr, effectiveEntriesForDay(day, log), allExercises());
+      copyTextWithFallback(text, copyStatus);
+    });
+    content.appendChild(copyBtn);
+    content.appendChild(copyStatus);
   }
 
   document.getElementById('removeWorkoutBtn').addEventListener('click', async ()=>{
@@ -1667,6 +1731,11 @@ Cable Crunch
     let html = '';
     if(!ids.length){
       html += `<p class="muted">No sets logged this day.</p>`;
+    } else {
+      html += `<div class="history-actions" style="margin-bottom:4px;">
+        <button class="btn-ghost btn-small" data-copy-day="${esc(date)}">Copy workout as text</button>
+      </div>
+      <p class="muted" id="historyCopyStatus" style="margin-top:0;margin-bottom:4px;min-height:16px;font-size:12.5px;"></p>`;
     }
     ids.forEach(id=>{
       const name = (allExercises())[id] || id;
@@ -1703,6 +1772,15 @@ Cable Crunch
   }
 
   function wireDayEditor(container){
+    container.querySelectorAll('[data-copy-day]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const date = btn.dataset.copyDay;
+        const entries = (logs[date] && logs[date].entries) || {};
+        const text = formatWorkoutText(null, date, entries, allExercises());
+        const statusEl = container.querySelector('#historyCopyStatus');
+        copyTextWithFallback(text, statusEl);
+      });
+    });
     container.querySelectorAll('.history-set-remove').forEach(btn=>{
       btn.addEventListener('click', ()=>{ btn.closest('.history-set').remove(); });
     });
