@@ -970,7 +970,15 @@ Cable Crunch
       Object.values(logs).forEach(l=>{ if(l.entries && l.entries[id]) c += l.entries[id].length; });
       return c;
     };
-    wrap.innerHTML = ids.map(id=>{
+    // Group ids that share the same display name — those are duplicates of one exercise.
+    const groups = {};
+    ids.forEach(id=>{ (groups[normName(map[id])] = groups[normName(map[id])] || []).push(id); });
+    const dupGroups = Object.values(groups).filter(g=>g.length>1);
+    const dupBar = dupGroups.length ? `<div style="margin-bottom:12px;">
+        <button class="btn-primary btn-small" id="mergeDupsBtn">Merge ${dupGroups.length} duplicate name${dupGroups.length===1?'':'s'} automatically</button>
+        <p class="muted" style="font-size:12px;margin-top:6px;">Combines exercises that have the exact same name into one, keeping the copy with the most history.</p>
+      </div>` : '';
+    wrap.innerHTML = dupBar + ids.map(id=>{
       const otherOptions = ids.filter(o=>o!==id).map(o=>`<option value="${escapeAttr(o)}">${escapeAttr(map[o])}</option>`).join('');
       const media = exerciseMedia[id];
       const defaultUnit = getDefaultUnitForName(map[id]);
@@ -995,6 +1003,29 @@ Cable Crunch
         </div>
       </div>`;
     }).join('');
+
+    const mergeDupsBtn = document.getElementById('mergeDupsBtn');
+    if(mergeDupsBtn) mergeDupsBtn.addEventListener('click', async ()=>{
+      if(!confirm(`Merge ${dupGroups.length} group(s) of same-named exercises into one each? This can't be undone.`)) return;
+      dupGroups.forEach(group=>{
+        // keep the copy with the most logged sets
+        const keep = group.slice().sort((a,b)=> countFor(b)-countFor(a))[0];
+        group.filter(id=>id!==keep).forEach(id=>{
+          Object.keys(logs).forEach(date=>{
+            const entries = logs[date].entries || {};
+            if(entries[id]){
+              entries[keep] = (entries[keep]||[]).concat(entries[id]);
+              delete entries[id];
+            }
+          });
+          // only drop the saved name if it isn't a live plan exercise
+          if(!findPlanExercise(id)) delete exerciseNames[id];
+        });
+        if(!exerciseNames[keep]) exerciseNames[keep] = map[keep];
+      });
+      await saveLogs(); await saveExerciseNames();
+      renderExerciseManager(); renderPlanEditor(); renderToday(); renderProgressExOptions(); renderHistory();
+    });
 
     wrap.querySelectorAll('.exmgr-unit-toggle').forEach(btn=>{
       btn.addEventListener('click', async ()=>{
@@ -1383,7 +1414,7 @@ Cable Crunch
           title: `Swap "${ex.name}" for today`,
           currentName: '',
           onConfirm: (altName)=>{
-            const newId = slugify(altName.trim());
+            const newId = resolveExerciseId(altName.trim());
             exerciseNames[newId] = altName.trim();
             if(!log.substitutions) log.substitutions = {};
             log.substitutions[ex.id] = newId;
@@ -1425,7 +1456,20 @@ Cable Crunch
       // carry that stale original entry into history right alongside the swapped-in one, so the
       // old exercise would still show up in the calendar even though you swapped it out.
       if(!logs[todayStr]) logs[todayStr] = { dayId: day.id, entries: {} };
-      Object.assign(logs[todayStr].entries, effectiveEntriesForDay(day, log));
+      // Commit each exercise under its canonical id: if an exercise with the same name already
+      // exists in your history, reuse that id instead of creating a second copy of it (this is
+      // what used to cause duplicate "Bench Press" entries that needed merging by hand).
+      const exMapNow = allExercises();
+      const effective = effectiveEntriesForDay(day, log);
+      Object.keys(effective).forEach(id=>{
+        const name = exMapNow[id] || humanizeId(id);
+        const canon = resolveExerciseId(name);
+        const dayEntries = logs[todayStr].entries;
+        if(canon===id) dayEntries[id] = effective[id];
+        else dayEntries[canon] = (dayEntries[canon]||[]).concat(effective[id]);
+        // the plan day is about to leave the pool, so keep the real name on record
+        if(!exerciseNames[canon]) exerciseNames[canon] = name;
+      });
       logs[todayStr].dayId = day.id;
       if(log.substitutions && Object.keys(log.substitutions).length){
         logs[todayStr].substitutions = Object.assign(logs[todayStr].substitutions||{}, log.substitutions);
@@ -1436,9 +1480,8 @@ Cable Crunch
       // history/calendar can still show the real name instead of falling back to a
       // humanized version of the raw uid() — same guard already used when deleting a
       // single exercise from a day in Setup.
-      day.exercises.forEach(ex=>{
-        exerciseNames[ex.id] = exerciseNames[ex.id] || ex.name || ex.id;
-      });
+      // (Handled above per committed exercise — only exercises that were actually logged keep
+      // a saved name, so unlogged plan exercises don't leave phantom duplicates behind.)
       await saveLogs();
       await saveExerciseNames();
       await clearTodayDraft();
@@ -1603,6 +1646,20 @@ Cable Crunch
     return 'imp_' + name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40);
   }
 
+  // Given a display name, return the id of an exercise that ALREADY has that name (so picking
+  // "Bench Press" from the picker reuses the existing exercise instead of minting a second id
+  // for the same name). Prefers an id that already has logged history; only falls back to a
+  // brand-new slug id when nothing with that name exists yet.
+  function resolveExerciseId(name){
+    const target = normName(name);
+    const map = allExercises();
+    const matches = Object.keys(map).filter(id=> normName(map[id])===target);
+    if(!matches.length) return slugify(name);
+    const logged = new Set();
+    Object.values(logs).forEach(l=> Object.keys(l.entries||{}).forEach(i=> logged.add(i)));
+    return matches.find(id=>logged.has(id)) || matches[0];
+  }
+
   // ---------- import ----------
   function parseImportText(text){
     // returns array of { date, exercises: [{name, sets:[{weight,unit,reps}]}] }
@@ -1654,8 +1711,8 @@ Cable Crunch
       const dayLog = logs[sess.date];
       sess.exercises.forEach(ex=>{
         if(!ex.sets.length) return;
-        const id = slugify(ex.name);
-        exerciseNames[id] = ex.name;
+        const id = resolveExerciseId(ex.name);
+        if(!exerciseNames[id] && !allExercises()[id]) exerciseNames[id] = ex.name;
         if(!dayLog.entries[id]) dayLog.entries[id] = [];
         ex.sets.forEach(s=>{
           dayLog.entries[id].push({
@@ -1813,8 +1870,8 @@ Cable Crunch
           title: `Add exercise to ${date}`,
           currentName: '',
           onConfirm: async (name)=>{
-            const id = slugify(name);
-            exerciseNames[id] = name;
+            const id = resolveExerciseId(name);
+            if(!allExercises()[id] || allExercises()[id]===humanizeId(id)) exerciseNames[id] = name;
             const unit = getDefaultUnitForName(name);
             if(!logs[date]) logs[date] = { dayId:null, entries:{} };
             if(!logs[date].entries[id]) logs[date].entries[id] = [];
